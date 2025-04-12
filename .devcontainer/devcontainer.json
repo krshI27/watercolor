@@ -1,0 +1,7 @@
+{
+"name": "watercolor",
+"dockerComposeFile": "../docker-compose.yml",
+"service": "watercolor",
+"workspaceFolder": "/app",
+"shutdownAction": "none"
+}
