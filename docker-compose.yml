@@ -1,16 +1,20 @@
-name: watercolor
+version: '3.8'
 
 services:
   watercolor:
-    container_name: watercolor
-    image: watercolor:latest
+    container_name: watercolor-app
     build:
       context: .
       dockerfile: ./Dockerfile
-    ports:
-      - 8501:8501
+    image: watercolor-app:latest
     stdin_open: true
+    tty: true
     restart: always
     volumes:
-      - ~/dev/data:/data
       - ~/dev/watercolor:/app
+    networks:
+      - watercolor-network
+
+networks:
+  watercolor-network:
+    name: watercolor-network

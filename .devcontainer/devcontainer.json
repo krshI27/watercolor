@@ -1,7 +1,29 @@
 {
-"name": "watercolor",
-"dockerComposeFile": "../docker-compose.yml",
-"service": "watercolor",
-"workspaceFolder": "/app",
-"shutdownAction": "none"
+  "name": "Watercolor Development",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "watercolor",
+  "workspaceFolder": "/app",
+  "shutdownAction": "none",
+  
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/conda/bin/python",
+        "python.linting.enabled": true,
+        "editor.formatOnSave": true,
+        "terminal.integrated.defaultProfile.linux": "sh",
+        "terminal.integrated.profiles.linux": {
+          "zsh": {
+            "path": "/bin/zsh"
+          }
+        }
+      }
+    }
+  }
 }

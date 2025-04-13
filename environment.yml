@@ -1,4 +1,8 @@
 name: base
 dependencies:
   - python=3.11
-  - cairo
+  - pycairo
+  - streamlit
+  - pip
+  - pip:
+      - pymixbox
