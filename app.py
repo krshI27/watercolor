@@ -60,7 +60,7 @@ if st.sidebar.button("Generate Watercolor", type="primary"):
     
     # Build the command
     cmd = [
-        "python", "effect/watercolor_effect.py",
+        "python", "effect_main.py",
         "--width", str(width),
         "--height", str(height),
         "--initial-deform", str(initial_deform),
