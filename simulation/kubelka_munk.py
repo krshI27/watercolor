@@ -54,6 +54,27 @@ class KubelkaMunk:
         
         return K, S
     
+    def compute_layer_optics(self, K: np.ndarray, S: np.ndarray, thickness: float) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Calculate reflectance and transmittance for a pigment layer.
+        This is an alias for get_reflectance_transmittance for compatibility with tests.
+        
+        Parameters:
+        -----------
+        K : np.ndarray
+            Absorption coefficients
+        S : np.ndarray
+            Scattering coefficients
+        thickness : float
+            Layer thickness
+        
+        Returns:
+        --------
+        tuple
+            (R, T) Reflectance and transmittance of the layer
+        """
+        return self.get_reflectance_transmittance(K, S, thickness)
+    
     @staticmethod
     def get_reflectance_transmittance(K: np.ndarray, S: np.ndarray, thickness: float) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -91,32 +112,73 @@ class KubelkaMunk:
         return R, T
     
     @staticmethod
-    def composite_layers(R1: np.ndarray, T1: np.ndarray, R2: np.ndarray, T2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def composite_layers(R1, T1, R2=None, T2=None) -> np.ndarray:
         """
         Composite two layers using Kubelka's optical compositing equations.
         Implements the equations from Section 5.2 of the paper.
         
+        This method can be called in two ways:
+        1. composite_layers(R1, T1, R2, T2) - to composite two individual layers
+        2. composite_layers([R1, R2, ...], [T1, T2, ...]) - to composite multiple layers
+        
         Parameters:
         -----------
-        R1, T1 : np.ndarray
-            Reflectance and transmittance of layer 1 (top)
-        R2, T2 : np.ndarray
-            Reflectance and transmittance of layer 2 (bottom)
+        R1 : np.ndarray or list
+            Reflectance of layer 1 or list of reflectances for multiple layers
+        T1 : np.ndarray or list
+            Transmittance of layer 1 or list of transmittances for multiple layers
+        R2 : np.ndarray, optional
+            Reflectance of layer 2 (not used when R1 and T1 are lists)
+        T2 : np.ndarray, optional
+            Transmittance of layer 2 (not used when R1 and T1 are lists)
         
         Returns:
         --------
-        tuple
-            (R, T) Reflectance and transmittance of the composite
+        np.ndarray
+            Final reflectance after compositing all layers
         """
-        # Avoid division by zero
-        denominator = 1.0 - R1 * R2
-        denominator = np.where(denominator == 0, 1e-6, denominator)
+        # Handle the case when lists of R and T values are provided
+        if isinstance(R1, list) and isinstance(T1, list) and R2 is None and T2 is None:
+            if len(R1) != len(T1):
+                raise ValueError("Lists of reflectance and transmittance must have the same length")
+            
+            if len(R1) == 0:
+                return np.ones(3)  # Default: perfect reflector (white)
+            
+            if len(R1) == 1:
+                return R1[0]  # Single layer case
+            
+            # Composite all layers
+            R_total = R1[0]
+            T_total = T1[0]
+            
+            for i in range(1, len(R1)):
+                # Avoid division by zero
+                denominator = 1.0 - R_total * R1[i]
+                denominator = np.where(denominator == 0, 1e-6, denominator)
+                
+                # Composite current result with next layer
+                R_new = R_total + (T_total**2 * R1[i]) / denominator
+                T_new = (T_total * T1[i]) / denominator
+                
+                R_total, T_total = R_new, T_new
+                
+            return R_total
         
-        # Calculate composite reflectance and transmittance
-        R = R1 + (T1**2 * R2) / denominator
-        T = (T1 * T2) / denominator
-        
-        return R, T
+        # Original case: composite two individual layers
+        else:
+            if R2 is None or T2 is None:
+                raise ValueError("When providing individual layers, R1, T1, R2, and T2 are all required")
+                
+            # Avoid division by zero
+            denominator = 1.0 - R1 * R2
+            denominator = np.where(denominator == 0, 1e-6, denominator)
+            
+            # Calculate composite reflectance and transmittance
+            R = R1 + (T1**2 * R2) / denominator
+            T = (T1 * T2) / denominator
+            
+            return R, T
     
     @staticmethod
     def render_glazes(glazes: List[Dict], background_color: np.ndarray = np.array([1.0, 1.0, 1.0])) -> np.ndarray:

@@ -50,10 +50,11 @@ class WatercolorSimulation:
         self.saturation_threshold = 0.5  # σ (sigma)
         
         # Initialize paper
-        self.paper_height = None
-        self.paper_capacity = None
-        self.paper_min_capacity = 0.3
-        self.paper_max_capacity = 0.8
+        from simulation.paper import Paper
+        self.paper = Paper(width, height, c_min=0.3, c_max=0.8)
+        # For backwards compatibility
+        self.paper_min_capacity = self.paper.c_min
+        self.paper_max_capacity = self.paper.c_max
         
         # Initialize simulation layers
         self.reset()
@@ -74,9 +75,7 @@ class WatercolorSimulation:
         # Capillary layer
         self.water_saturation = np.zeros((self.height, self.width), dtype=np.float32)  # s
         
-        # Generate paper if not already done
-        if self.paper_height is None:
-            self.generate_paper()
+        # Paper is already initialized in __init__, no need to check/regenerate it
     
     def generate_paper(self, method: str = 'perlin', seed: Optional[int] = None):
         """

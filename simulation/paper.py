@@ -1,131 +1,124 @@
 #!/usr/bin/env python3
 """
-Paper Model Module
-
-This module implements the paper model for the watercolor simulation as described in
-Section 4.1 of the 'Computer-Generated Watercolor' paper.
-
-The paper is modeled as a height field and a fluid capacity field.
+Paper model for watercolor simulation.
+Based on Section 4.1 of 'Computer-Generated Watercolor'.
 """
 
 import numpy as np
-import scipy.ndimage as ndimage
-from typing import Tuple, Optional
+from scipy.ndimage import gaussian_filter
+import cv2
 
-
-class PaperModel:
+class Paper:
     """
-    Paper model for watercolor simulation.
-    
-    Paper is represented as a height field that affects fluid flow, backruns, and granulation.
-    The paper texture is modeled as both a height field and a fluid capacity field.
+    Models paper properties that affect watercolor behavior:
+    - Height field (rough surface texture)
+    - Fluid capacity (porous structure)
+    - Sizing (absorption control)
     """
     
-    def __init__(self, width: int, height: int):
-        """
-        Initialize the paper model.
-        
-        Parameters:
-        -----------
-        width : int
-            Width of the paper in pixels
-        height : int
-            Height of the paper in pixels
-        """
+    def __init__(self, width: int, height: int, c_min: float = 0.3, c_max: float = 0.7):
         self.width = width
         self.height = height
-        self.height_field = None
-        self.capacity_field = None
-        self.paper_min_capacity = 0.3
-        self.paper_max_capacity = 0.8
-    
-    def generate(self, method: str = 'perlin', seed: Optional[int] = None) -> None:
-        """
-        Generate a paper texture as a height field.
+        self.c_min = c_min  # Minimum fluid capacity
+        self.c_max = c_max  # Maximum fluid capacity
         
-        Parameters:
-        -----------
-        method : str
-            Method to use for generating paper texture ('perlin', 'random', 'fractal')
-        seed : int, optional
-            Random seed for reproducibility
-        """
+        # Initialize fields
+        self.height_field = np.zeros((height, width))
+        self.fluid_capacity = np.zeros((height, width))
+        self.sizing = np.ones((height, width))  # Default to fully sized
+        
+        # Generate default texture
+        self.generate('perlin')
+        
+    def generate(self, method: str = 'perlin', seed: int = None):
+        """Generate paper texture using specified method."""
         if seed is not None:
             np.random.seed(seed)
-        
-        # Generate paper height field
+            
         if method == 'perlin':
-            # A simple approximation of Perlin noise for this example
-            scale = 8
-            octaves = 4
-            self.height_field = np.zeros((self.height, self.width), dtype=np.float32)
-            
-            for octave in range(octaves):
-                s = scale * (2 ** octave)
-                h_samples = max(2, self.height // s)
-                w_samples = max(2, self.width // s)
-                
-                noise = np.random.rand(h_samples, w_samples).astype(np.float32)
-                noise = ndimage.zoom(noise, (self.height / h_samples, self.width / w_samples), order=1)
-                self.height_field += noise / (2 ** octave)
-            
-            # Normalize to [0, 1]
-            self.height_field -= np.min(self.height_field)
-            self.height_field /= np.max(self.height_field)
-            
-        elif method == 'random':
-            # Simple random texture
-            self.height_field = np.random.rand(self.height, self.width).astype(np.float32)
-            
+            self._generate_perlin()
         elif method == 'fractal':
-            # Approximate fractal noise
-            scale = 4
-            octaves = 6
-            self.height_field = np.zeros((self.height, self.width), dtype=np.float32)
+            self._generate_fractal()
+        else:  # random
+            self._generate_random()
             
-            for octave in range(octaves):
-                s = scale * (2 ** octave)
-                h_samples = max(2, self.height // s)
-                w_samples = max(2, self.width // s)
-                
-                noise = np.random.rand(h_samples, w_samples).astype(np.float32)
-                noise = ndimage.zoom(noise, (self.height / h_samples, self.width / w_samples), order=1)
-                self.height_field += noise / (2 ** octave)
+        # Update derived properties
+        self.update_capacity()
+        
+    def _generate_perlin(self):
+        """Generate Perlin-like noise for paper texture."""
+        scales = [1, 2, 4, 8]
+        weights = [0.5, 0.25, 0.15, 0.1]
+        
+        for scale, weight in zip(scales, weights):
+            freq = 8 * scale
+            x = np.linspace(0, freq, self.width)
+            y = np.linspace(0, freq, self.height)
+            X, Y = np.meshgrid(x, y)
             
-            # Normalize to [0, 1]
-            self.height_field -= np.min(self.height_field)
-            self.height_field /= np.max(self.height_field)
+            noise = np.sin(X + 0.5*np.cos(Y)) * np.cos(Y + 0.5*np.sin(X))
+            noise = gaussian_filter(noise, sigma=1/scale)
+            self.height_field += weight * noise
+            
+        self._normalize_height()
         
-        # Compute paper capacity from height
-        self.compute_capacity_field()
-
-    def compute_capacity_field(self) -> None:
-        """Compute fluid capacity field from the height field."""
-        if self.height_field is None:
-            raise ValueError("Height field must be generated before computing capacity field")
+    def _generate_fractal(self):
+        """Generate fractal noise using fBm."""
+        octaves = 6
+        persistence = 0.5
         
-        self.capacity_field = (self.height_field * 
-                              (self.paper_max_capacity - self.paper_min_capacity) + 
-                              self.paper_min_capacity)
-    
-    def compute_slope(self) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Compute the gradient of the paper height field.
+        for i in range(octaves):
+            freq = 2**i
+            amp = persistence**i
+            noise = np.random.randn(self.height//freq, self.width//freq)
+            noise = cv2.resize(noise, (self.width, self.height))
+            self.height_field += amp * noise
+            
+        self._normalize_height()
         
-        Returns:
-        --------
-        tuple
-            (dx, dy) gradient arrays
-        """
-        if self.height_field is None:
-            raise ValueError("Height field must be generated before computing slope")
+    def _generate_random(self):
+        """Generate simple random noise."""
+        self.height_field = np.random.randn(self.height, self.width)
+        self.height_field = gaussian_filter(self.height_field, sigma=2)
+        self._normalize_height()
         
-        # Use Sobel filter to compute gradient
-        dx = ndimage.sobel(self.height_field, axis=1)
-        dy = ndimage.sobel(self.height_field, axis=0)
+    def _normalize_height(self):
+        """Normalize height field to [0, 1]."""
+        self.height_field -= self.height_field.min()
+        self.height_field /= self.height_field.max()
         
-        # Normalize to reasonable values
-        dx = dx / 8.0
-        dy = dy / 8.0
+    def update_capacity(self):
+        """Update fluid capacity based on height field."""
+        self.fluid_capacity = (
+            self.height_field * (self.c_max - self.c_min) + self.c_min
+        )
         
-        return dx, dy
+    def load_from_image(self, path: str):
+        """Load paper height field from an image."""
+        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise ValueError(f"Could not load image from {path}")
+            
+        # Resize if needed
+        if img.shape != (self.height, self.width):
+            img = cv2.resize(img, (self.width, self.height))
+            
+        # Normalize to [0, 1]
+        self.height_field = img.astype(np.float32) / 255.0
+        self.update_capacity()
+        
+    def load_sizing(self, path: str):
+        """Load paper sizing field from an image."""
+        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise ValueError(f"Could not load image from {path}")
+            
+        if img.shape != (self.height, self.width):
+            img = cv2.resize(img, (self.width, self.height))
+            
+        self.sizing = img.astype(np.float32) / 255.0
+        
+    @property
+    def slope(self):
+        """Calculate paper surface slope (gradient of height field)."""
+        return np.gradient(self.height_field)

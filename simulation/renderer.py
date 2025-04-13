@@ -1,206 +1,99 @@
 #!/usr/bin/env python3
 """
-Watercolor Renderer Module
-
-This module implements the rendering of watercolor simulations using the Kubelka-Munk model
-as described in Section 5 of the 'Computer-Generated Watercolor' paper.
+Watercolor rendering module.
+Implements Kubelka-Munk optical model from Section 5 of the paper.
 """
 
 import numpy as np
-from typing import List, Dict, Optional, Tuple, Union
-import matplotlib.pyplot as plt
-
-from .fluid_simulation import WaterSimulation
-from .pigment import PigmentLayer
+from .fluid_simulation import FluidSimulation
 from .kubelka_munk import KubelkaMunk
 
-
 class WatercolorRenderer:
-    """
-    Renderer for watercolor simulations using the Kubelka-Munk model.
+    """Renders watercolor simulation results using Kubelka-Munk model."""
     
-    This class takes the output from the fluid simulation and renders it using
-    the Kubelka-Munk optical compositing model to produce realistic watercolor effects.
-    """
-    
-    def __init__(self, simulation: WaterSimulation):
-        """
-        Initialize renderer with a watercolor simulation.
-        
-        Parameters:
-        -----------
-        simulation : WaterSimulation
-            The watercolor simulation to render
-        """
+    def __init__(self, simulation):
         self.simulation = simulation
-    
-    def render_pigment_layer(
-        self, 
-        layer_idx: int, 
-        background_color: np.ndarray = np.array([1.0, 1.0, 1.0])
-    ) -> np.ndarray:
+        self.km = KubelkaMunk()
+        
+    def render_pigment(self, pigment_idx: int) -> np.ndarray:
         """
-        Render a single pigment layer.
-        
-        Parameters:
-        -----------
-        layer_idx : int
-            Index of the pigment layer to render
-        background_color : np.ndarray
-            RGB color of the background
-        
-        Returns:
-        --------
-        np.ndarray
-            RGB image of rendered pigment
+        Render a single pigment using Kubelka-Munk equations.
+        Returns RGB color array.
         """
-        if layer_idx >= len(self.simulation.pigment_layers):
-            raise ValueError(f"Invalid pigment layer index: {layer_idx}")
-        
-        # Get pigment layer
-        pigment_layer = self.simulation.pigment_layers[layer_idx]
-        
         # Get pigment properties
-        kubelka_munk_params = pigment_layer.pigment.kubelka_munk_params
+        km_params = self.simulation.pigment_properties[pigment_idx]['kubelka_munk_params']
         
-        # Check if K and S are provided
-        if 'K' not in kubelka_munk_params or 'S' not in kubelka_munk_params:
-            raise ValueError(f"Pigment {pigment_layer.pigment.name} has no Kubelka-Munk parameters (K and S)")
+        # Get total pigment thickness (water + paper)
+        thickness = (
+            self.simulation.pigment_water[pigment_idx] +
+            self.simulation.pigment_paper[pigment_idx]
+        )
         
-        K = kubelka_munk_params['K']
-        S = kubelka_munk_params['S']
+        # Calculate reflectance using K-M model
+        R, T = self.km.compute_layer_optics(
+            km_params['K'],
+            km_params['S'],
+            thickness
+        )
         
-        # Get pigment thickness (combined water and paper concentrations)
-        thickness = pigment_layer.get_total_concentration()
+        return R
         
-        # Create output image
-        height, width = self.simulation.height, self.simulation.width
-        output = np.zeros((height, width, 3), dtype=np.float32)
+    def render_all_pigments(self) -> np.ndarray:
+        """
+        Render all pigments using K-M optical compositing.
+        Returns final RGB image.
+        """
+        background = np.ones(3)  # White background
+        height, width = self.simulation.pigment_paper[0].shape
+        result = np.ones((height, width, 3))  # Initialize with white
         
-        # For each pixel
+        # Process each pixel individually to avoid broadcasting issues
         for i in range(height):
             for j in range(width):
-                # If there's pigment at this pixel
-                if thickness[i, j] > 0:
-                    # Create glaze with thickness at this point
-                    glaze = {
-                        'K': K,
-                        'S': S,
-                        'thickness': thickness[i, j]
-                    }
-                    
-                    # Render using Kubelka-Munk
-                    output[i, j] = KubelkaMunk.render_glazes([glaze], background_color)
-                else:
-                    output[i, j] = background_color
-        
-        return output
-    
-    def render_all_layers(
-        self, 
-        background_color: np.ndarray = np.array([1.0, 1.0, 1.0])
-    ) -> np.ndarray:
-        """
-        Render all pigment layers composited together.
-        
-        Parameters:
-        -----------
-        background_color : np.ndarray
-            RGB color of the background
-        
-        Returns:
-        --------
-        np.ndarray
-            RGB image of all rendered pigments
-        """
-        # Create list of glazes
-        glazes = []
-        
-        for pigment_layer in self.simulation.pigment_layers:
-            # Get pigment properties
-            kubelka_munk_params = pigment_layer.pigment.kubelka_munk_params
-            
-            # Check if K and S are provided
-            if 'K' not in kubelka_munk_params or 'S' not in kubelka_munk_params:
-                raise ValueError(f"Pigment {pigment_layer.pigment.name} has no Kubelka-Munk parameters (K and S)")
-            
-            K = kubelka_munk_params['K']
-            S = kubelka_munk_params['S']
-            
-            # Get pigment thickness (combined water and paper concentrations)
-            thickness = pigment_layer.get_total_concentration()
-            
-            # Add to glazes list
-            glazes.append({
-                'K': K,
-                'S': S,
-                'thickness': thickness
-            })
-        
-        # Create output image
-        height, width = self.simulation.height, self.simulation.width
-        output = np.zeros((height, width, 3), dtype=np.float32)
-        
-        # For each pixel
-        for i in range(height):
-            for j in range(width):
-                # Create list of glazes at this point
-                pixel_glazes = []
+                # Check if there's any pigment at this pixel
+                has_pigment = False
                 
-                for idx, glaze in enumerate(glazes):
-                    if glaze['thickness'][i, j] > 0:
-                        pixel_glazes.append({
-                            'K': glaze['K'],
-                            'S': glaze['S'],
-                            'thickness': glaze['thickness'][i, j]
+                # Prepare glazes for this pixel
+                glazes = []
+                
+                for idx in range(len(self.simulation.pigment_properties)):
+                    km_params = self.simulation.pigment_properties[idx]['kubelka_munk_params']
+                    thickness_value = (self.simulation.pigment_water[idx][i, j] +
+                                      self.simulation.pigment_paper[idx][i, j])
+                    
+                    # Only add glazes with visible pigment
+                    if thickness_value > 0.001:
+                        has_pigment = True
+                        glazes.append({
+                            'K': km_params['K'],
+                            'S': km_params['S'],
+                            'thickness': thickness_value
                         })
                 
-                # If there are glazes at this point, render them
-                if pixel_glazes:
-                    output[i, j] = KubelkaMunk.render_glazes(pixel_glazes, background_color)
-                else:
-                    output[i, j] = background_color
+                # If there's pigment at this pixel, compute the color
+                if has_pigment:
+                    # Use render_glazes to correctly handle the compositing
+                    R_total = background
+                    T_total = np.zeros_like(background)
+                    
+                    # Composite each glaze, from bottom to top
+                    for glaze in reversed(glazes):
+                        K = glaze['K']
+                        S = glaze['S']
+                        thickness = glaze['thickness']
+                        
+                        # Get reflectance and transmittance of this glaze
+                        R, T = self.km.get_reflectance_transmittance(K, S, thickness)
+                        
+                        # Composite with already computed layers
+                        if np.all(T_total == 0):  # First layer (on background)
+                            R_total = R + (T**2 * R_total) / (1.0 - R * R_total + 1e-10)
+                            T_total = T
+                        else:
+                            R_new, T_new = self.km.composite_layers(R, T, R_total, T_total)
+                            R_total, T_total = R_new, T_new
+                    
+                    # Store result for this pixel
+                    result[i, j] = R_total
         
-        return output
-    
-    def save_image(
-        self, 
-        output_image: np.ndarray, 
-        filename: str = "watercolor_output.png", 
-        dpi: int = 150
-    ) -> None:
-        """
-        Save the rendered watercolor image to a file.
-        
-        Parameters:
-        -----------
-        output_image : np.ndarray
-            The rendered image to save
-        filename : str
-            Name of the output file
-        dpi : int
-            Resolution in dots per inch
-        """
-        plt.figure(figsize=(8, 8))
-        plt.imshow(np.clip(output_image, 0, 1))
-        plt.axis('off')
-        plt.title('Watercolor Simulation')
-        plt.tight_layout()
-        plt.savefig(filename, dpi=dpi)
-        plt.close()
-    
-    def display_image(self, output_image: np.ndarray) -> None:
-        """
-        Display the rendered watercolor image.
-        
-        Parameters:
-        -----------
-        output_image : np.ndarray
-            The rendered image to display
-        """
-        plt.figure(figsize=(8, 8))
-        plt.imshow(np.clip(output_image, 0, 1))
-        plt.axis('off')
-        plt.title('Watercolor Simulation')
-        plt.tight_layout()
-        plt.show()
+        return result

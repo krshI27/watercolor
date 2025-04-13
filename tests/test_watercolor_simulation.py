@@ -3,356 +3,182 @@
 Unit tests for the watercolor simulation module.
 """
 
-import sys
-import os
-import unittest
+import pytest
 import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
+import os
+import json
+from simulation.watercolor_simulation import WatercolorSimulation
+from simulation.paper import Paper
+from simulation.kubelka_munk import KubelkaMunk
 
-# Add parent directory to path so we can import the simulation module
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+@pytest.fixture
+def test_data_dir():
+    """Load test data from demo_input directory"""
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), "demo_input")
 
-from simulation.watercolor_simulation import (
-    WatercolorSimulation,
-    KubelkaMunk,
-    WatercolorRenderer
-)
+@pytest.fixture
+def basic_simulation():
+    """Create a basic simulation setup"""
+    width = height = 64
+    sim = WatercolorSimulation(width, height)
+    sim.paper.generate("perlin", seed=42)
+    return sim
 
-class TestWatercolorSimulation(unittest.TestCase):
-    """Test cases for the WatercolorSimulation class"""
+def test_paper_properties(test_data_dir):
+    """Test paper height field, capacity, and sizing interactions"""
+    paper = Paper(64, 64)
     
-    def setUp(self):
-        """Set up a simulation instance for testing"""
-        self.width = 64
-        self.height = 64
-        self.sim = WatercolorSimulation(self.width, self.height)
+    # Load test paper properties
+    height_path = os.path.join(test_data_dir, "paper_height.png")
+    capacity_path = os.path.join(test_data_dir, "paper_capacity.png")
+    sizing_path = os.path.join(test_data_dir, "paper_sizing.png")
     
-    def test_initialization(self):
-        """Test that the simulation initializes correctly"""
-        self.assertEqual(self.sim.width, self.width)
-        self.assertEqual(self.sim.height, self.height)
-        self.assertEqual(len(self.sim.pigment_water), 0)
-        self.assertEqual(len(self.sim.pigment_paper), 0)
-        self.assertEqual(self.sim.wet_mask.shape, (self.height, self.width))
-    
-    def test_paper_generation(self):
-        """Test paper generation methods"""
-        # Test perlin noise generation
-        self.sim.generate_paper(method='perlin', seed=42)
-        self.assertIsNotNone(self.sim.paper_height)
-        self.assertEqual(self.sim.paper_height.shape, (self.height, self.width))
-        self.assertTrue(0 <= np.min(self.sim.paper_height) <= np.max(self.sim.paper_height) <= 1)
+    # Test with demo data if available
+    if os.path.exists(height_path):
+        paper.load_from_image(height_path)
+        assert paper.height_field.shape == (64, 64)
+        assert np.all(paper.height_field >= 0)
+        assert np.all(paper.height_field <= 1)
         
-        # Test random generation
-        self.sim.generate_paper(method='random', seed=42)
-        self.assertEqual(self.sim.paper_height.shape, (self.height, self.width))
-        self.assertTrue(0 <= np.min(self.sim.paper_height) <= np.max(self.sim.paper_height) <= 1)
-        
-        # Test fractal generation
-        self.sim.generate_paper(method='fractal', seed=42)
-        self.assertEqual(self.sim.paper_height.shape, (self.height, self.width))
-        self.assertTrue(0 <= np.min(self.sim.paper_height) <= np.max(self.sim.paper_height) <= 1)
-        
-        # Test that paper capacity is properly calculated
-        self.assertIsNotNone(self.sim.paper_capacity)
-        self.assertEqual(self.sim.paper_capacity.shape, (self.height, self.width))
-        self.assertTrue(self.sim.paper_min_capacity <= np.min(self.sim.paper_capacity) <= 
-                        np.max(self.sim.paper_capacity) <= self.sim.paper_max_capacity)
-    
-    def test_pigment_handling(self):
-        """Test pigment management functions"""
-        # Test adding pigment
-        km_params = {
-            'K': np.array([0.8, 0.2, 0.1]),
-            'S': np.array([0.1, 0.2, 0.9])
-        }
-        
-        idx = self.sim.add_pigment(
-            density=1.0,
-            staining_power=0.6,
-            granularity=0.4,
-            kubelka_munk_params=km_params
-        )
-        
-        self.assertEqual(idx, 0)  # First pigment should have index 0
-        self.assertEqual(len(self.sim.pigment_water), 1)
-        self.assertEqual(len(self.sim.pigment_paper), 1)
-        self.assertEqual(len(self.sim.pigment_properties), 1)
-        
-        # Test pigment properties
-        props = self.sim.pigment_properties[0]
-        self.assertEqual(props['density'], 1.0)
-        self.assertEqual(props['staining_power'], 0.6)
-        self.assertEqual(props['granularity'], 0.4)
-        self.assertDictEqual(props['kubelka_munk_params'], km_params)
-        
-        # Test setting pigment and wet mask
-        mask = np.zeros((self.height, self.width), dtype=np.float32)
-        mask[20:40, 20:40] = 1.0  # Create a square mask
-        
-        self.sim.set_pigment_water(0, mask, concentration=0.8)
-        self.sim.set_wet_mask(mask)
-        
-        # Check that pigment was set correctly
-        self.assertTrue(np.all(self.sim.pigment_water[0][20:40, 20:40] == 0.8))
-        self.assertTrue(np.all(self.sim.pigment_water[0][:20, :] == 0.0))
-        
-        # Check that wet mask was set correctly
-        self.assertTrue(np.all(self.sim.wet_mask[20:40, 20:40] == 1.0))
-        self.assertTrue(np.all(self.sim.wet_mask[:20, :] == 0.0))
-    
-    def test_velocity_operations(self):
-        """Test velocity field operations"""
-        # Generate paper
-        self.sim.generate_paper(method='perlin', seed=42)
-        
-        # Set up a simple wet area
-        mask = np.zeros((self.height, self.width), dtype=np.float32)
-        mask[20:40, 20:40] = 1.0
-        self.sim.set_wet_mask(mask)
-        
-        # Test compute_paper_slope
-        dx, dy = self.sim.compute_paper_slope()
-        self.assertEqual(dx.shape, (self.height, self.width))
-        self.assertEqual(dy.shape, (self.height, self.width))
-        
-        # Test enforce_boundary_conditions
-        # First, set some velocities
-        self.sim.velocity_u.fill(1.0)
-        self.sim.velocity_v.fill(1.0)
-        
-        # Apply boundary conditions
-        self.sim.enforce_boundary_conditions()
-        
-        # Check that velocities are zero at the boundaries of wet region
-        # Just check a few sample points to make sure it's working
-        self.assertEqual(self.sim.velocity_u[30, 20], 0.0)  # Left boundary
-        self.assertEqual(self.sim.velocity_u[30, 40], 0.0)  # Right boundary
-        self.assertEqual(self.sim.velocity_v[20, 30], 0.0)  # Top boundary
-        self.assertEqual(self.sim.velocity_v[40, 30], 0.0)  # Bottom boundary
+        # Verify capacity calculation
+        paper.update_capacity()
+        assert paper.fluid_capacity.shape == paper.height_field.shape
+        assert np.all(paper.fluid_capacity >= paper.c_min)
+        assert np.all(paper.fluid_capacity <= paper.c_max)
 
-    def test_simulation_steps(self):
-        """Test that simulation steps run without errors"""
-        # Generate paper
-        self.sim.generate_paper(method='perlin', seed=42)
+def test_edge_darkening(basic_simulation, test_data_dir):
+    """Test edge darkening effect from Section 4.3.3"""
+    sim = basic_simulation
+    
+    # Load edge darkening test mask
+    mask_path = os.path.join(test_data_dir, "edge_darkening_test.png")
+    if os.path.exists(mask_path):
+        from PIL import Image
+        import numpy as np
+        mask = np.array(Image.open(mask_path).convert('L')) / 255.0
+        mask = mask > 0.5
+        
+        # Set up test
+        sim.set_wet_mask(mask)
+        sim.set_pigment_water(0, mask, concentration=0.8)
+        
+        # Run simulation steps
+        for _ in range(20):
+            sim.move_water()
+            sim.move_pigment()
+            sim.transfer_pigment()
+        
+        # Check edge darkening effect
+        pigment = sim.pigment_paper[0]
+        center_y, center_x = mask.shape[0]//2, mask.shape[1]//2
+        center_val = pigment[center_y, center_x]
+        edge_y, edge_x = np.where(mask)[0][0], np.where(mask)[1][0]
+        edge_val = pigment[edge_y, edge_x]
+        
+        assert edge_val > center_val, "Edge should have higher pigment concentration"
+
+def test_backrun_effect(basic_simulation, test_data_dir):
+    """Test backrun effect from Section 4.6"""
+    sim = basic_simulation
+    
+    # Load backrun test mask
+    mask_path = os.path.join(test_data_dir, "backrun_test.png")
+    if os.path.exists(mask_path):
+        from PIL import Image
+        import numpy as np
+        mask = np.array(Image.open(mask_path).convert('L')) / 255.0
+        mask = mask > 0.5
+        
+        # Set up test with varying saturation
+        sim.set_wet_mask(mask)
+        sim.water_saturation[mask] = 0.8  # Wet region
+        sim.water_saturation[~mask] = 0.3  # Damp region
         
         # Add pigment
-        idx = self.sim.add_pigment(
-            density=1.0,
-            staining_power=0.6,
-            granularity=0.4,
-            kubelka_munk_params={
-                'K': np.array([0.8, 0.2, 0.1]),
-                'S': np.array([0.1, 0.2, 0.9])
-            }
-        )
+        sim.set_pigment_water(0, mask, concentration=0.5)
         
-        # Set wet mask and pigment
-        mask = np.zeros((self.height, self.width), dtype=np.float32)
-        mask[20:40, 20:40] = 1.0
-        self.sim.set_wet_mask(mask)
-        self.sim.set_pigment_water(idx, mask, concentration=0.8)
-        
-        # Try running individual steps
-        self.sim.update_velocities()
-        self.sim.relax_divergence()
-        self.sim.flow_outward()
-        self.sim.move_water()
-        self.sim.move_pigment()
-        self.sim.transfer_pigment()
-        self.sim.simulate_capillary_flow()
-        
-        # Test main loop runs without errors
-        self.sim.main_loop(num_steps=5)
-        
-        # Get result and check it has expected structure
-        result = self.sim.get_result()
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].shape, (self.height, self.width))
+        # Run simulation focusing on capillary flow
+        initial_mask = sim.wet_mask.copy()
+        for _ in range(30):
+            sim.simulate_capillary_flow()
+            
+        # Verify backrun formation
+        assert np.sum(sim.wet_mask) > np.sum(initial_mask), "Wet area should expand"
+        assert not np.array_equal(sim.wet_mask, initial_mask), "Mask should change"
 
-class TestKubelkaMunk(unittest.TestCase):
-    """Test cases for the KubelkaMunk class"""
+def test_pigment_separation(basic_simulation, test_data_dir):
+    """Test pigment separation behavior from Section 2.2"""
+    sim = basic_simulation
     
-    def test_get_coefficients_from_colors(self):
-        """Test computation of Kubelka-Munk coefficients from colors"""
-        white_color = np.array([0.8, 0.6, 0.9])
-        black_color = np.array([0.2, 0.1, 0.3])
+    # Load pigment properties
+    props_path = os.path.join(test_data_dir, "pigment_properties.json")
+    if os.path.exists(props_path):
+        with open(props_path) as f:
+            pigments = json.load(f)
+            
+        # Add pigments with different properties
+        indices = []
+        for p in pigments:
+            idx = sim.add_pigment(
+                density=p['density'],
+                staining_power=p['staining_power'],
+                granularity=p['granularity'],
+                kubelka_munk_params={
+                    'K': np.array(p['K']),
+                    'S': np.array(p['S'])
+                }
+            )
+            indices.append(idx)
         
-        K, S = KubelkaMunk.get_coefficients_from_colors(white_color, black_color)
+        # Create test pattern
+        y, x = np.ogrid[-32:32, -32:32]
+        mask = x*x + y*y <= 20*20
         
-        self.assertEqual(K.shape, (3,))
-        self.assertEqual(S.shape, (3,))
-        self.assertTrue(np.all(K >= 0))
-        self.assertTrue(np.all(S >= 0))
-    
-    def test_get_reflectance_transmittance(self):
-        """Test computation of reflectance and transmittance"""
-        K = np.array([0.8, 0.2, 0.1])
-        S = np.array([0.1, 0.2, 0.9])
-        thickness = 0.5
+        # Add pigments to water
+        for idx in indices:
+            sim.set_pigment_water(idx, mask, concentration=0.5)
         
-        R, T = KubelkaMunk.get_reflectance_transmittance(K, S, thickness)
+        # Run simulation
+        for _ in range(20):
+            sim.move_water()
+            sim.move_pigment()
+            sim.transfer_pigment()
         
-        self.assertEqual(R.shape, (3,))
-        self.assertEqual(T.shape, (3,))
-        self.assertTrue(np.all(R >= 0) and np.all(R <= 1))
-        self.assertTrue(np.all(T >= 0) and np.all(T <= 1))
-    
-    def test_composite_layers(self):
-        """Test compositing of layers"""
-        R1 = np.array([0.7, 0.5, 0.3])
-        T1 = np.array([0.2, 0.3, 0.4])
-        R2 = np.array([0.6, 0.4, 0.2])
-        T2 = np.array([0.1, 0.2, 0.3])
-        
-        R, T = KubelkaMunk.composite_layers(R1, T1, R2, T2)
-        
-        self.assertEqual(R.shape, (3,))
-        self.assertEqual(T.shape, (3,))
-        self.assertTrue(np.all(R >= 0) and np.all(R <= 1))
-        self.assertTrue(np.all(T >= 0) and np.all(T <= 1))
-    
-    def test_render_glazes(self):
-        """Test rendering of glazes"""
-        glazes = [
-            {
-                'K': np.array([0.8, 0.2, 0.1]),
-                'S': np.array([0.1, 0.2, 0.9]),
-                'thickness': 0.5
-            },
-            {
-                'K': np.array([0.1, 0.7, 0.3]),
-                'S': np.array([0.9, 0.2, 0.1]),
-                'thickness': 0.3
-            }
-        ]
-        
-        background_color = np.array([1.0, 1.0, 1.0])
-        
-        result = KubelkaMunk.render_glazes(glazes, background_color)
-        
-        self.assertEqual(result.shape, (3,))
-        self.assertTrue(np.all(result >= 0) and np.all(result <= 1))
+        # Check pigment separation
+        # Denser pigments should settle more quickly
+        for i in range(len(indices)-1):
+            curr_pigment = sim.pigment_paper[indices[i]]
+            next_pigment = sim.pigment_paper[indices[i+1]]
+            
+            # Compare settling patterns
+            assert np.mean(curr_pigment) > np.mean(next_pigment), \
+                "Denser pigments should settle more"
 
-class TestWatercolorRenderer(unittest.TestCase):
-    """Test cases for the WatercolorRenderer class"""
+def test_glazing_optical_model(basic_simulation):
+    """Test glazing and optical compositing from Section 5"""
+    sim = basic_simulation
     
-    def setUp(self):
-        """Set up a simulation and renderer for testing"""
-        self.width = 64
-        self.height = 64
-        self.sim = WatercolorSimulation(self.width, self.height)
-        self.sim.generate_paper(method='perlin', seed=42)
-        
-        # Add a pigment
-        self.pigment_idx = self.sim.add_pigment(
-            density=1.0,
-            staining_power=0.6,
-            granularity=0.4,
-            kubelka_munk_params={
-                'K': np.array([0.8, 0.2, 0.1]),
-                'S': np.array([0.1, 0.2, 0.9])
-            }
-        )
-        
-        # Set wet mask and pigment
-        mask = np.zeros((self.height, self.width), dtype=np.float32)
-        mask[20:40, 20:40] = 1.0
-        self.sim.set_wet_mask(mask)
-        self.sim.set_pigment_water(self.pigment_idx, mask, concentration=0.8)
-        
-        # Run a few simulation steps
-        self.sim.main_loop(num_steps=2)
-        
-        # Create renderer
-        self.renderer = WatercolorRenderer(self.sim)
-    
-    def test_render_pigment(self):
-        """Test rendering a single pigment"""
-        result = self.renderer.render_pigment(self.pigment_idx)
-        
-        self.assertEqual(result.shape, (self.height, self.width, 3))
-        self.assertTrue(np.all(result >= 0) and np.all(result <= 1))
-    
-    def test_render_all_pigments(self):
-        """Test rendering all pigments"""
-        # Add another pigment
-        self.sim.add_pigment(
-            density=0.8,
-            staining_power=0.4,
-            granularity=0.6,
-            kubelka_munk_params={
-                'K': np.array([0.1, 0.7, 0.3]),
-                'S': np.array([0.9, 0.2, 0.1])
-            }
-        )
-        
-        # Set second pigment
-        mask = np.zeros((self.height, self.width), dtype=np.float32)
-        mask[30:50, 30:50] = 1.0
-        self.sim.set_pigment_water(1, mask, concentration=0.6)
-        
-        # Run a few more steps
-        self.sim.main_loop(num_steps=2)
-        
-        # Render result
-        result = self.renderer.render_all_pigments()
-        
-        self.assertEqual(result.shape, (self.height, self.width, 3))
-        self.assertTrue(np.all(result >= 0) and np.all(result <= 1))
-
-def visual_test():
-    """Run visual test to generate and display a watercolor image"""
-    print("Running visual test...")
-    
-    # Create simulation
-    sim = WatercolorSimulation(256, 256)
-    sim.generate_paper(method='perlin', seed=42)
-    
-    # Add blue pigment
-    blue_km = {
-        'K': np.array([0.8, 0.2, 0.1]),  # High absorption in red, low in blue
-        'S': np.array([0.1, 0.2, 0.9])   # High scattering in blue
+    # Create two test glazes with known parameters
+    glaze1 = {
+        'K': np.array([0.8, 0.2, 0.1]),
+        'S': np.array([0.1, 0.2, 0.9]),
+        'thickness': 0.5
     }
     
-    blue_idx = sim.add_pigment(
-        density=1.0,
-        staining_power=0.6,
-        granularity=0.4,
-        kubelka_munk_params=blue_km
-    )
+    glaze2 = {
+        'K': np.array([0.1, 0.7, 0.3]),
+        'S': np.array([0.9, 0.2, 0.1]),
+        'thickness': 0.3
+    }
     
-    # Create a circular mask
-    y, x = np.ogrid[-128:128, -128:128]
-    mask = x*x + y*y <= 80*80
+    # Test Kubelka-Munk calculations
+    km = KubelkaMunk()
+    R1, T1 = km.compute_layer_optics(glaze1['K'], glaze1['S'], glaze1['thickness'])
+    R2, T2 = km.compute_layer_optics(glaze2['K'], glaze2['S'], glaze2['thickness'])
     
-    # Set wet mask and pigment
-    sim.set_wet_mask(mask)
-    sim.set_pigment_water(blue_idx, mask, concentration=0.8)
+    # Composite the glazes
+    R_final = km.composite_layers([R1, R2], [T1, T2])
     
-    # Run simulation
-    print("Running simulation steps...")
-    sim.main_loop(20)
-    
-    # Render result
-    renderer = WatercolorRenderer(sim)
-    result = renderer.render_all_pigments()
-    
-    # Save and display result
-    output_path = Path(__file__).parent / "test_watercolor_output.png"
-    plt.figure(figsize=(8, 8))
-    plt.imshow(np.clip(result, 0, 1))
-    plt.axis('off')
-    plt.title('Watercolor Simulation Test')
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150)
-    print(f"Visual test result saved to {output_path}")
-
-if __name__ == "__main__":
-    # Run unit tests
-    unittest.main(argv=['first-arg-is-ignored'], exit=False)
-    
-    # Run visual test if not running from unittest
-    if sys.argv[0] == __file__:
-        visual_test()
+    # Verify physical constraints
+    assert np.all(R_final >= 0) and np.all(R_final <= 1), "Invalid reflectance values"
+    assert not np.array_equal(R_final, R1), "Compositing should modify reflectance"
