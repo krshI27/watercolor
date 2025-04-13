@@ -1,8 +1,12 @@
 name: base
 dependencies:
   - python=3.11
+  - numpy
+  - scipy
+  - matplotlib
   - pycairo
   - streamlit
+  - pytest
   - pip
   - pip:
       - pymixbox
