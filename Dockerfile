@@ -16,8 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY environment.yml /app/
 
 # Update conda environment
-RUN mamba env update -n base --file environment.yml \
-    && mamba clean -a -y
+RUN mamba env update -n base --file environment.yml
 
 # Copy application code
 COPY . /app

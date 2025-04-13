@@ -23,11 +23,6 @@ colors = [
     (0.867, 0.627, 0.867),  # Cobalt Violet
 ]
 
-# Import the correct mixbox module from the local clone
-sys.path.append("/app/mixbox/python")
-import mixbox
-
-
 def mix_colors(color1, color2, ratio=0.5):
     """
     Mix two RGB colors using the mixbox library which simulates real pigment mixing
