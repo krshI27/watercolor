@@ -16,6 +16,8 @@ The rendering uses the Kubelka-Munk model for optical compositing of glazes.
 import numpy as np
 from typing import List, Tuple, Dict, Optional, Union
 import scipy.ndimage as ndimage
+import numpy as np
+import tqdm
 
 class WatercolorSimulation:
     """
@@ -330,8 +332,14 @@ class WatercolorSimulation:
                                            self.velocity_v[i, min(j+1, self.width-1)] + 
                                            self.velocity_v[i+1, min(j+1, self.width-1)]) if i < self.height - 1 else 0
                         
-                        # Advection term
-                        A = (u_i_j**2 - u_ip1_j**2) + ((u_i_j * v_ip5_jm5) - (u_ip1_j * v_ip5_jp5))
+                        # Advection term - handle potential overflow with np.clip
+                        u_i_j_safe = np.clip(u_i_j, -1e6, 1e6)
+                        u_ip1_j_safe = np.clip(u_ip1_j, -1e6, 1e6)
+                        v_ip5_jm5_safe = np.clip(v_ip5_jm5, -1e6, 1e6)
+                        v_ip5_jp5_safe = np.clip(v_ip5_jp5, -1e6, 1e6)
+                        
+                        A = ((u_i_j_safe**2) - (u_ip1_j_safe**2)) + ((u_i_j_safe * v_ip5_jm5_safe) - (u_ip1_j_safe * v_ip5_jp5_safe))
+                        A = np.clip(A, -1e6, 1e6)  # Prevent overflow
                         
                         # Diffusion (viscosity) term
                         B = 0
@@ -339,18 +347,20 @@ class WatercolorSimulation:
                             B = (self.velocity_u[i, j+1] + self.velocity_u[i, j-1] + 
                                  self.velocity_u[i+1, j] + self.velocity_u[i-1, j] - 
                                  4.0 * self.velocity_u[i, j])
+                        B = np.clip(B, -1e6, 1e6)  # Prevent overflow
                         
                         # Pressure term
                         p_left = self.pressure[i, j-1] if j > 0 else 0
                         p_right = self.pressure[i, j] if j < self.width else 0
                         
-                        # Update velocity
+                        # Update velocity with clipping to prevent numerical instability
                         new_u[i, j] = self.velocity_u[i, j] + dt * (
                             A - 
                             self.viscosity * B + 
                             p_left - p_right - 
                             self.viscous_drag * self.velocity_u[i, j]
                         )
+                        new_u[i, j] = np.clip(new_u[i, j], -1e6, 1e6)  # Prevent extreme values
             
             for i in range(1, self.height):
                 for j in range(self.width):
@@ -370,8 +380,14 @@ class WatercolorSimulation:
                                            self.velocity_u[min(i+1, self.height-1), j] + 
                                            self.velocity_u[min(i+1, self.height-1), j+1]) if j < self.width - 1 else 0
                         
-                        # Advection term
-                        A = (v_i_j**2 - v_i_jp1**2) + ((v_i_j * u_im5_jp5) - (v_i_jp1 * u_ip5_jp5))
+                        # Advection term - handle potential overflow with np.clip
+                        v_i_j_safe = np.clip(v_i_j, -1e6, 1e6)
+                        v_i_jp1_safe = np.clip(v_i_jp1, -1e6, 1e6)
+                        u_im5_jp5_safe = np.clip(u_im5_jp5, -1e6, 1e6)
+                        u_ip5_jp5_safe = np.clip(u_ip5_jp5, -1e6, 1e6)
+                        
+                        A = ((v_i_j_safe**2) - (v_i_jp1_safe**2)) + ((v_i_j_safe * u_im5_jp5_safe) - (v_i_jp1_safe * u_ip5_jp5_safe))
+                        A = np.clip(A, -1e6, 1e6)  # Prevent overflow
                         
                         # Diffusion (viscosity) term
                         B = 0
@@ -379,18 +395,20 @@ class WatercolorSimulation:
                             B = (self.velocity_v[i+1, j] + self.velocity_v[i-1, j] + 
                                  self.velocity_v[i, j+1] + self.velocity_v[i, j-1] - 
                                  4.0 * self.velocity_v[i, j])
+                        B = np.clip(B, -1e6, 1e6)  # Prevent overflow
                         
                         # Pressure term
                         p_top = self.pressure[i-1, j] if i > 0 else 0
                         p_bottom = self.pressure[i, j] if i < self.height else 0
                         
-                        # Update velocity
+                        # Update velocity with clipping to prevent numerical instability
                         new_v[i, j] = self.velocity_v[i, j] + dt * (
                             A - 
                             self.viscosity * B + 
                             p_top - p_bottom - 
                             self.viscous_drag * self.velocity_v[i, j]
                         )
+                        new_v[i, j] = np.clip(new_v[i, j], -1e6, 1e6)  # Prevent extreme values
             
             # Update velocity fields
             self.velocity_u = new_u.copy()
@@ -547,11 +565,16 @@ class WatercolorSimulation:
             for i in range(self.height):
                 for j in range(self.width):
                     if self.wet_mask[i, j] > 0:
-                        # Calculate pigment adsorption (water to paper)
-                        delta_down = g[i, j] * (1.0 - self.paper_height[i, j] * granularity) * density
+                        # Calculate pigment adsorption (water to paper) with safety limits
+                        height_factor = np.clip(1.0 - self.paper_height[i, j] * granularity, 0.0, 1.0)
+                        delta_down = g[i, j] * height_factor * density
+                        delta_down = np.clip(delta_down, 0.0, 1.0)  # Prevent overflow
                         
-                        # Calculate pigment desorption (paper to water)
-                        delta_up = d[i, j] * (1.0 + (self.paper_height[i, j] - 1.0) * granularity) * density / staining_power
+                        # Calculate pigment desorption (paper to water) with safety against division by zero
+                        safe_staining = max(0.001, staining_power)  # Prevent division by very small values
+                        height_effect = np.clip(1.0 + (self.paper_height[i, j] - 1.0) * granularity, 0.0, 10.0)
+                        delta_up = d[i, j] * height_effect * density / safe_staining
+                        delta_up = np.clip(delta_up, 0.0, 1.0)  # Prevent overflow
                         
                         # Limit transfers to keep values in [0, 1]
                         if d[i, j] + delta_down > 1.0:
@@ -560,9 +583,9 @@ class WatercolorSimulation:
                         if g[i, j] + delta_up > 1.0:
                             delta_up = max(0, 1.0 - g[i, j])
                         
-                        # Transfer pigment
-                        d[i, j] += delta_down - delta_up
-                        g[i, j] += delta_up - delta_down
+                        # Transfer pigment with safety bounds
+                        d[i, j] = np.clip(d[i, j] + delta_down - delta_up, 0.0, 1.0)
+                        g[i, j] = np.clip(g[i, j] + delta_up - delta_down, 0.0, 1.0)
             
             # Update pigment layers
             self.pigment_water[pigment_idx] = g
@@ -634,7 +657,15 @@ class WatercolorSimulation:
         num_steps : int
             Number of time steps to simulate
         """
-        for step in range(num_steps):
+        # Use tqdm for a progress bar if available
+        try:
+            from tqdm import tqdm
+            iterator = tqdm(range(num_steps), desc="Simulation progress", ncols=80)
+        except ImportError:
+            print(f"Running simulation for {num_steps} steps...")
+            iterator = range(num_steps)
+
+        for step in iterator:
             # Move water in shallow-water layer
             self.move_water()
             
@@ -716,19 +747,33 @@ class KubelkaMunk:
         tuple
             (R, T) Reflectance and transmittance of the layer
         """
-        a = 1.0 + K / S
-        b = np.sqrt(a**2 - 1.0)
-        bSx = b * S * thickness
+        # Use np.clip to avoid division by very small values
+        S_safe = np.maximum(S, 1e-10)
+        a = 1.0 + K / S_safe
         
-        # Calculate sinh and cosh using exponential forms to avoid numerical issues
-        sinh_bSx = (np.exp(bSx) - np.exp(-bSx)) / 2.0
-        cosh_bSx = (np.exp(bSx) + np.exp(-bSx)) / 2.0
+        # Avoid nan values with max(0, ...)
+        b = np.sqrt(np.maximum(0, a**2 - 1.0))
         
+        # Limit thickness to avoid overflow in exponential
+        safe_thickness = min(thickness, 10.0)
+        bSx = b * S * safe_thickness
+        
+        # Use numpy's hyperbolic functions with clipping to prevent overflow
+        # Limit exponents to prevent overflow
+        max_exp = 20.0  # Limit to avoid overflow
+        safe_bsx = np.clip(bSx, -max_exp, max_exp)
+        
+        # Use numpy's more stable implementation of sinh/cosh
+        sinh_bSx = np.sinh(safe_bsx)
+        cosh_bSx = np.cosh(safe_bsx)
+        
+        # Avoid division by zero or very small values
         c = a * sinh_bSx + b * cosh_bSx
+        c_safe = np.maximum(c, 1e-10)
         
-        # Calculate reflectance and transmittance
-        R = sinh_bSx / c
-        T = b / c
+        # Calculate reflectance and transmittance with safety bounds
+        R = np.clip(sinh_bSx / c_safe, 0.0, 1.0)
+        T = np.clip(b / c_safe, 0.0, 1.0)
         
         return R, T
     

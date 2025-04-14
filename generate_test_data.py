@@ -190,12 +190,12 @@ def create_glaze_pattern(width: int, height: int) -> np.ndarray:
 def main():
     """Generate all test data files."""
     # Create output directory
-    output_dir = "demo_input"
+    output_dir = "test_data"
     os.makedirs(output_dir, exist_ok=True)
     
     # Parameters
-    width = 800
-    height = 800
+    width = 512
+    height = 512
     
     print("Generating test data...")
     
@@ -228,14 +228,15 @@ def main():
             p['S'] = p['S'].tolist()
         json.dump(pigments, f, indent=2)
         
-    print("Test data generated in 'demo_input' directory")
+    print("Test data generated in 'test_data' directory")
     print("\nTo test individual effects, run:")
     print(
         "python simulation_main.py "
-        "--input-height demo_input/paper_height.png "
-        "--input-capacity demo_input/paper_capacity.png "
-        "--input-sizing demo_input/paper_sizing.png "
-        "--input-mask demo_input/edge_darkening_test.png "
+        "--input-height test_data/paper_height.png "
+        "--input-capacity test_data/paper_capacity.png "
+        "--input-sizing test_data/paper_sizing.png "
+        "--input-mask test_data/edge_darkening_test.png "
+        "--steps 15 "
         "--save-stages"
     )
 
