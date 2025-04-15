@@ -6,10 +6,10 @@ import argparse
 from unittest import mock
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
 # Only need parse_arguments from simulation_main
-from simulation_main import parse_arguments
+from src.simulation_main import parse_arguments
 
 
 # --- Function Tests ---

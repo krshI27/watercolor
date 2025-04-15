@@ -5,11 +5,11 @@ from pathlib import Path
 import sys
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-from simulation.watercolor_simulation import WatercolorSimulation
-from simulation.renderer import WatercolorRenderer
-from simulation.kubelka_munk import KubelkaMunk  # For manual checks
+from src.simulation.watercolor_simulation import WatercolorSimulation
+from src.simulation.renderer import WatercolorRenderer
+from src.simulation.kubelka_munk import KubelkaMunk  # For manual checks
 
 
 # Fixtures

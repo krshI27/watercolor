@@ -8,15 +8,15 @@ import argparse
 import sys
 
 # Add project root to path to allow imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-from simulation.watercolor_simulation import WatercolorSimulation
-from simulation.renderer import WatercolorRenderer
-from simulation.paper import Paper
-from simulation.kubelka_munk import KubelkaMunk
-from simulation.pigment import Pigment, PigmentLayer
-import auto_watercolorize
-from simulation_main import load_input_image, save_stage_output
+from src.simulation.watercolor_simulation import WatercolorSimulation
+from src.simulation.renderer import WatercolorRenderer
+from src.simulation.paper import Paper
+from src.simulation.kubelka_munk import KubelkaMunk
+from src.simulation.pigment import Pigment, PigmentLayer
+import src.auto_watercolorize
+from src.simulation_main import load_input_image, save_stage_output
 
 
 # Fixtures

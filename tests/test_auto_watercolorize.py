@@ -9,14 +9,14 @@ from unittest import mock
 from concurrent.futures import ProcessPoolExecutor  # Keep original for mock target
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
 # Import functions to test
-import auto_watercolorize
-from simulation.watercolor_simulation import (
+import src.auto_watercolorize
+from src.simulation.watercolor_simulation import (
     WatercolorSimulation,
 )  # For simulate_step/chunk
-from simulation_main import load_input_image  # For test image loading
+from src.simulation_main import load_input_image  # For test image loading
 
 
 # Mock PoolExecutor for testing parallel functions sequentially
@@ -103,11 +103,11 @@ def pigment_km():
 # --- Test Helper Functions ---
 
 
-@mock.patch("auto_watercolorize.ProcessPoolExecutor", MockExecutor)
+@mock.patch("src.auto_watercolorize.ProcessPoolExecutor", MockExecutor)
 def test_process_pigment_mask(test_image):
     # Mock the necessary input for process_pigment_mask
     pixels = test_image.reshape(-1, 3)
-    kmeans = auto_watercolorize.KMeans(n_clusters=2, random_state=0, n_init=10).fit(
+    kmeans = src.auto_watercolorize.KMeans(n_clusters=2, random_state=0, n_init=10).fit(
         pixels
     )
     labels = kmeans.labels_
@@ -115,7 +115,7 @@ def test_process_pigment_mask(test_image):
     args_tuple = (labels, 0, (10, 10), centers)  # Test for cluster 0
 
     # Call the function
-    result = auto_watercolorize.process_pigment_mask(args_tuple)
+    result = src.auto_watercolorize.process_pigment_mask(args_tuple)
 
     # Validate results
     assert isinstance(result, tuple)
@@ -141,10 +141,10 @@ def test_process_pigment_mask(test_image):
     assert np.sum(mask) > 10  # Should cover a significant portion
 
 
-@mock.patch("auto_watercolorize.ProcessPoolExecutor", MockExecutor)
+@mock.patch("src.auto_watercolorize.ProcessPoolExecutor", MockExecutor)
 def test_color_separation(test_image):
     num_pigments = 3
-    pigment_params, pigment_masks = auto_watercolorize.color_separation(
+    pigment_params, pigment_masks = src.auto_watercolorize.color_separation(
         test_image, num_pigments
     )
 
@@ -178,7 +178,7 @@ def test_create_paper_structure(output_dir):
     width, height = 20, 15
 
     # Test default generation
-    paper_height, paper_capacity = auto_watercolorize.create_paper_structure(
+    paper_height, paper_capacity = src.auto_watercolorize.create_paper_structure(
         width, height
     )
     assert paper_height.shape == (height, width)
@@ -192,7 +192,7 @@ def test_create_paper_structure(output_dir):
     height_img = (np.ones((height, width)) * 128).astype(np.uint8)  # Grayscale 0.5
     cv2.imwrite(height_path, height_img)
 
-    paper_height_f, paper_capacity_f = auto_watercolorize.create_paper_structure(
+    paper_height_f, paper_capacity_f = src.auto_watercolorize.create_paper_structure(
         width, height, height_file=height_path
     )
     assert np.allclose(paper_height_f, 0.5, atol=1e-2)  # Check loaded height
@@ -204,7 +204,7 @@ def test_create_paper_structure(output_dir):
     capacity_path = os.path.join(output_dir, "test_capacity.png")
     capacity_img = (np.ones((height, width)) * 204).astype(np.uint8)  # Grayscale 0.8
     cv2.imwrite(capacity_path, capacity_img)
-    paper_height_c, paper_capacity_c = auto_watercolorize.create_paper_structure(
+    paper_height_c, paper_capacity_c = src.auto_watercolorize.create_paper_structure(
         width, height, capacity_file=capacity_path
     )
     # Height should still be default generated
@@ -217,7 +217,7 @@ def test_create_wetness_distribution(test_image, output_dir):
     width, height = 10, 10
 
     # Test default generation (should be based on source image luminance)
-    wetness_src = auto_watercolorize.create_wetness_distribution(
+    wetness_src = src.auto_watercolorize.create_wetness_distribution(
         width, height, source_image=test_image
     )
     assert wetness_src.shape == (height, width)
@@ -234,7 +234,7 @@ def test_create_wetness_distribution(test_image, output_dir):
     wet_img = np.zeros((height, width), dtype=np.uint8)
     wet_img[3:7, 3:7] = 255  # Wet square
     cv2.imwrite(wetness_path, wet_img)
-    wetness_file = auto_watercolorize.create_wetness_distribution(
+    wetness_file = src.auto_watercolorize.create_wetness_distribution(
         width,
         height,
         wetness_file=wetness_path,
@@ -245,7 +245,7 @@ def test_create_wetness_distribution(test_image, output_dir):
     assert np.all(wetness_file[:3, :] < 0.1)  # Check dry area
 
     # Test without source image and without file (should be uniform random)
-    wetness_rand = auto_watercolorize.create_wetness_distribution(width, height)
+    wetness_rand = src.auto_watercolorize.create_wetness_distribution(width, height)
     assert wetness_rand.shape == (height, width)
     assert (
         np.mean(wetness_rand) > 0.1 and np.mean(wetness_rand) < 0.9
@@ -274,7 +274,7 @@ def test_simulate_step(sim, pigment_km):
     }
 
     # Run one step using the helper
-    auto_watercolorize.simulate_step(sim, verbose=False)
+    src.auto_watercolorize.simulate_step(sim, verbose=False)
 
     # Check that state has changed (water moved, pigment transferred etc.)
     assert not np.allclose(state_before["sat"], sim.water_saturation)
@@ -302,7 +302,7 @@ def test_run_simulation_chunk(sim, pigment_km):
 
     steps = 3
     # Run chunk using the helper
-    auto_watercolorize.run_simulation_chunk(sim, steps, verbose=False)
+    src.auto_watercolorize.run_simulation_chunk(sim, steps, verbose=False)
 
     # Check that state has changed significantly after multiple steps
     assert not np.allclose(state_before["sat"], sim.water_saturation)
@@ -314,12 +314,12 @@ def test_run_simulation_chunk(sim, pigment_km):
 
 
 # Mock the main function itself to prevent full execution during import test
-@mock.patch("auto_watercolorize.main")
+@mock.patch("src.auto_watercolorize.main")
 def test_main_entrypoint_import(mock_main):
     """Test if the script is importable and __main__ guard works."""
     try:
         # Importing should not trigger main() if guarded by __name__ == "__main__"
-        import auto_watercolorize as script
+        import src.auto_watercolorize as script
 
         assert script.__name__ == "auto_watercolorize"
         mock_main.assert_not_called()

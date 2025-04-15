@@ -6,11 +6,11 @@ from pathlib import Path
 import sys
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-from simulation.fluid_simulation import FluidSimulation
-from simulation.paper import Paper  # Needed for slope input
-from simulation.watercolor_simulation import (
+from src.simulation.fluid_simulation import FluidSimulation
+from src.simulation.paper import Paper  # Needed for slope input
+from src.simulation.watercolor_simulation import (
     WatercolorSimulation,
 )  # For integration context
 

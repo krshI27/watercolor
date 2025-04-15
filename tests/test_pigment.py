@@ -4,11 +4,11 @@ from pathlib import Path
 import sys
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-from simulation.pigment import Pigment, PigmentLayer
-from simulation.paper import Paper  # Needed for transfer test context
-from simulation.kubelka_munk import KubelkaMunk  # For KM param setting
+from src.simulation.pigment import Pigment, PigmentLayer
+from src.simulation.paper import Paper  # Needed for transfer test context
+from src.simulation.kubelka_munk import KubelkaMunk  # For KM param setting
 
 
 # Fixtures
