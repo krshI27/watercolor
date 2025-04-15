@@ -14,6 +14,10 @@ import cv2
 from pathlib import Path
 import logging
 import time
+import multiprocessing
+
+# Define MAX_WORKERS for parallel processing (used in auto_watercolorize)
+MAX_WORKERS = multiprocessing.cpu_count() or 4
 
 # Import simulation components and helper functions
 from simulation.watercolor_simulation import WatercolorSimulation
@@ -187,7 +191,11 @@ def save_simulation_state(
     # Add dimensions explicitly
     state_dict["width"] = sim.width
     state_dict["height"] = sim.height
-    state_dict["num_pigments"] = sim.num_pigments
+    state_dict["num_pigments"] = (
+        len(sim.pigment_properties)
+        if hasattr(sim, "pigment_properties") and sim.pigment_properties
+        else len(sim.pigment_water)
+    )
 
     logging.info(f"Saving simulation state to {filepath}")
     np.savez(filepath, **state_dict)
@@ -339,9 +347,19 @@ def main():
         )
 
         # 5. Initialize Simulation object
-        sim = WatercolorSimulation(
-            args.width, args.height, num_pigments=args.num_pigments
-        )
+        sim = WatercolorSimulation(args.width, args.height)
+
+        # Initialize pigment arrays for the correct number of pigments
+        sim.pigment_water = [
+            np.zeros((args.height, args.width), dtype=np.float32)
+            for _ in range(args.num_pigments)
+        ]
+        sim.pigment_paper = [
+            np.zeros((args.height, args.width), dtype=np.float32)
+            for _ in range(args.num_pigments)
+        ]
+        sim.pigment_properties = []
+
         sim.paper_height = paper_height
         sim.paper_capacity = paper_capacity
         sim.viscosity = args.viscosity

@@ -20,6 +20,9 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import logging
 
+# Number of CPU cores for parallel processing
+MAX_WORKERS = os.cpu_count() or 4
+
 # Import simulation components
 from simulation.watercolor_simulation import WatercolorSimulation
 from simulation.renderer import WatercolorRenderer

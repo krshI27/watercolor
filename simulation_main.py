@@ -161,6 +161,35 @@ def load_input_image(path: str, target_size: tuple = None) -> np.ndarray:
     return img.astype(np.float32) / 255.0
 
 
+def save_output_image(image: np.ndarray, output_path: str):
+    """
+    Saves the final simulation result image.
+
+    Args:
+        image: The image data (numpy array, float32, 0.0-1.0).
+        output_path: The path to save the image file.
+    """
+    try:
+        # Convert float32 [0, 1] to uint8 [0, 255]
+        image_uint8 = (np.clip(image, 0, 1) * 255).astype(np.uint8)
+        # Ensure BGR format for OpenCV if it's color
+        if len(image_uint8.shape) == 3 and image_uint8.shape[2] == 3:
+            # Assuming input is RGB, convert to BGR for cv2.imwrite
+            # If input is already BGR, this might swap channels, but
+            # consistency with loading (which produces BGR) is likely intended.
+            # If loading produces RGB, remove this line.
+            # image_uint8 = cv2.cvtColor(image_uint8, cv2.COLOR_RGB2BGR) # Keep commented unless sure
+            pass  # Assume input is already BGR or grayscale handled by imwrite
+
+        if not cv2.imwrite(output_path, image_uint8):
+            raise IOError(f"cv2.imwrite failed to save to {output_path}")
+        print(f"Output image saved to: {output_path}")
+    except Exception as e:
+        print(f"Error saving output image to {output_path}: {e}", file=sys.stderr)
+        # Optionally re-raise or exit depending on desired error handling
+        # raise # Re-raise the exception
+
+
 def save_stage_output(stage_name: str, data: np.ndarray, output_dir: str):
     """Save intermediate stage output."""
     os.makedirs(output_dir, exist_ok=True)

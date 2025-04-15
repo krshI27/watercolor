@@ -20,6 +20,10 @@ from concurrent.futures import ThreadPoolExecutor
 import scipy.ndimage as ndimage
 import tqdm
 
+# Import FluidSimulation and Paper
+from .fluid_simulation import FluidSimulation
+from .paper import Paper
+
 
 @numba.jit(nopython=True, parallel=True, cache=True)
 def _numba_transfer_pigment_loop(
@@ -233,28 +237,42 @@ class WatercolorSimulation:
         self.saturation_threshold = 0.5  # σ (sigma)
 
         # Initialize paper
-        from simulation.paper import Paper
+        # from simulation.paper import Paper # Moved import to top
 
         self.paper = Paper(width, height, c_min=0.3, c_max=0.8)
-        # For backwards compatibility
+        # Initialize top-level attributes from paper
+        self.paper_height = self.paper.height_field
+        self.paper_capacity = self.paper.fluid_capacity
+        # For backwards compatibility (keep these?)
         self.paper_min_capacity = self.paper.c_min
         self.paper_max_capacity = self.paper.c_max
+
+        # Initialize Fluid Simulation
+        self.fluid_sim = FluidSimulation(
+            width,
+            height,
+            viscosity=self.viscosity,
+            drag=self.viscous_drag,
+            # Pass paper slope calculation function or relevant paper data
+            slope_x=self.paper.slope_x,
+            slope_y=self.paper.slope_y,
+        )
 
         # Initialize simulation layers
         self.reset()
         self.executor = ThreadPoolExecutor()  # Initialize thread pool
 
     def reset(self):
-        """Reset the simulation to its initial state."""
+        \"\"\"Reset the simulation to its initial state.\"\"\"
         # Shallow water layer
         self.wet_mask = np.zeros((self.height, self.width), dtype=np.float32)
-        self.velocity_u = np.zeros(
-            (self.height, self.width + 1), dtype=np.float32
-        )  # staggered grid
-        self.velocity_v = np.zeros(
-            (self.height + 1, self.width), dtype=np.float32
-        )  # staggered grid
-        self.pressure = np.zeros((self.height, self.width), dtype=np.float32)
+        # Reset fluid simulation state
+        self.fluid_sim.reset()
+        # Keep references for convenience (optional, could access via fluid_sim)
+        self.velocity_u = self.fluid_sim.u
+        self.velocity_v = self.fluid_sim.v
+        self.pressure = self.fluid_sim.p
+        # self.divergence = self.fluid_sim.divergence # If divergence is stored
 
         # Pigment layers
         self.pigment_water = []  # g^k - pigment in water
@@ -266,9 +284,13 @@ class WatercolorSimulation:
             (self.height, self.width), dtype=np.float32
         )  # s
 
-        # Paper is already initialized in __init__, no need to check/regenerate it
+        # Paper is not reset here, but ensure consistency if needed
+        # self.paper_height = self.paper.height_field
+        # self.paper_capacity = self.paper.fluid_capacity
+        # self.fluid_sim.slope_x = self.paper.slope_x # Update fluid sim if paper changes
+        # self.fluid_sim.slope_y = self.paper.slope_y
 
-    def generate_paper(self, method: str = "perlin", seed: Optional[int] = None):
+    def generate_paper(self, method: str = \"perlin\", seed: Optional[int] = None):
         """
         Generate a paper texture as a height field.
 
@@ -337,6 +359,12 @@ class WatercolorSimulation:
             self.paper_height * (self.paper_max_capacity - self.paper_min_capacity)
             + self.paper_min_capacity
         )
+
+        # Update paper attributes in the main simulation class and fluid sim
+        self.paper_height = self.paper.height_field
+        self.paper_capacity = self.paper.fluid_capacity
+        self.fluid_sim.slope_x = self.paper.slope_x
+        self.fluid_sim.slope_y = self.paper.slope_y
 
     def add_pigment(
         self,
@@ -495,11 +523,21 @@ class WatercolorSimulation:
         Update water velocities based on the shallow water equations.
         This is an optimized implementation of the UpdateVelocities() procedure using NumPy vectorization.
         """
+        import time
+
+        start_time = time.time()
+        print("Starting update_velocities...")
+
         # Get paper slope (gradient of height field)
         dx, dy = self.compute_paper_slope()
 
         # Create masks for wet regions
         wet_mask = self.wet_mask > 0
+        wet_cell_count = np.sum(wet_mask)
+
+        print(
+            f"Paper slope computation complete. Wet cells: {wet_cell_count}/{wet_mask.size}"
+        )
 
         # Adjust velocity by paper slope (vectorized)
         u_adjust = np.zeros_like(self.velocity_u)
@@ -516,11 +554,19 @@ class WatercolorSimulation:
         # Enforce boundary conditions after adjusting for slope
         self.enforce_boundary_conditions()
 
+        slope_time = time.time()
+        print(f"Slope adjustment complete in {slope_time - start_time:.4f} seconds")
+
         # Calculate adaptive time step to ensure stability
         max_velocity = max(
             np.max(np.abs(self.velocity_u)), np.max(np.abs(self.velocity_v))
         )
-        dt = 1.0 / max(1, np.ceil(max_velocity))
+        # Use a minimum time step of 0.001 instead of the default adaptive calculation
+        base_dt = 1.0 / max(1, np.ceil(max_velocity))
+        dt = max(0.001, base_dt)  # Enforce minimum time step of 0.001
+        print(
+            f"Maximum velocity: {max_velocity:.6f}, base_dt: {base_dt:.6f}, used_dt: {dt:.6f}"
+        )
 
         # Use a staggered grid for the update as in the paper
         # Initialize temporary arrays for the update
@@ -543,90 +589,90 @@ class WatercolorSimulation:
 
         # Update velocities using time stepping
         t = 0.0
+        step_count = 0
         while t < 1.0:
-            # Create intermediate arrays for u and v velocities at cell centers
-            u_centers = np.zeros((self.height, self.width + 1), dtype=np.float32)
-            v_centers = np.zeros((self.height + 1, self.width), dtype=np.float32)
-
-            # Calculate u at cell centers
-            # Ensure proper shapes match for broadcasting
-            u_centers[:, 1:-1] = 0.5 * (
-                self.velocity_u[:, 1:-1] + self.velocity_u[:, 2:]
-            )
-
-            # Calculate v at cell centers
-            # Ensure proper shapes match for broadcasting
-            v_centers[1:-1, :] = 0.5 * (
-                self.velocity_v[1:-1, :] + self.velocity_v[2:, :]
-            )
+            step_count += 1
+            print(f"Time stepping iteration {step_count}, t = {t:.4f}")
 
             # --- Update horizontal velocity (u) ---
-            # Create mask for valid u velocity cells (those with wet cells on either side)
+            # Create mask for valid u velocity cells
             valid_u_mask = np.zeros_like(new_u, dtype=bool)
+            u_count = 0
+
+            u_loop_start = time.time()
             for i in range(self.height):
                 for j in range(1, self.width):
                     left_wet = j > 0 and self.wet_mask[i, j - 1]
                     right_wet = j < self.width and self.wet_mask[i, j]
                     valid_u_mask[i, j] = left_wet or right_wet
+                    if valid_u_mask[i, j]:
+                        u_count += 1
+
+            print(f"Valid u cells: {u_count}/{valid_u_mask.size}")
 
             # Process only valid u velocities
+            u_updates = 0
             for i in range(self.height):
                 for j in range(1, self.width):
                     if valid_u_mask[i, j]:
+                        u_updates += 1
+                        if u_updates % 1000 == 0:
+                            print(f"Processing u velocity {u_updates}/{u_count}")
+
                         # Get u at cell centers safely
-                        u_i_j = 0.5 * (
+                        u_i_jm1 = 0.5 * (
                             self.velocity_u[i, max(0, j - 1)] + self.velocity_u[i, j]
                         )
-                        u_ip1_j = 0.5 * (
+                        u_i_j = 0.5 * (
                             self.velocity_u[i, j]
-                            + self.velocity_u[i, min(self.width, j + 1)]
+                            + self.velocity_u[i, min(j + 1, self.width - 1)]
                         )
 
                         # Get v at this u-velocity position
+                        v_im5_jm5 = 0
                         v_ip5_jm5 = 0
-                        v_ip5_jp5 = 0
 
                         if i < self.height - 1:
-                            v_ip5_jm5 = 0.25 * (
+                            v_im5_jm5 = 0.25 * (
                                 self.velocity_v[i, max(0, j - 1)]
-                                + self.velocity_v[i + 1, max(0, j - 1)]
                                 + self.velocity_v[i, j]
+                                + self.velocity_v[i + 1, max(0, j - 1)]
                                 + self.velocity_v[i + 1, j]
                             )
 
-                            v_ip5_jp5 = 0.25 * (
+                            v_ip5_jm5 = 0.25 * (
                                 self.velocity_v[i, j]
-                                + self.velocity_v[i + 1, j]
                                 + self.velocity_v[i, min(j + 1, self.width - 1)]
+                                + self.velocity_v[i + 1, j]
                                 + self.velocity_v[i + 1, min(j + 1, self.width - 1)]
                             )
 
                         # Safety clips
+                        u_i_jm1_safe = np.clip(u_i_jm1, -1e6, 1e6)
                         u_i_j_safe = np.clip(u_i_j, -1e6, 1e6)
-                        u_ip1_j_safe = np.clip(u_ip1_j, -1e6, 1e6)
+                        v_im5_jm5_safe = np.clip(v_im5_jm5, -1e6, 1e6)
                         v_ip5_jm5_safe = np.clip(v_ip5_jm5, -1e6, 1e6)
-                        v_ip5_jp5_safe = np.clip(v_ip5_jp5, -1e6, 1e6)
 
                         # Advection term
-                        A = ((u_i_j_safe**2) - (u_ip1_j_safe**2)) + (
-                            (u_i_j_safe * v_ip5_jm5_safe)
-                            - (u_ip1_j_safe * v_ip5_jp5_safe)
+                        A = ((u_i_jm1_safe**2) - (u_i_j_safe**2)) + (
+                            (u_i_jm1_safe * v_im5_jm5_safe)
+                            - (u_i_j_safe * v_ip5_jm5_safe)
                         )
                         A = np.clip(A, -1e6, 1e6)
 
-                        # Diffusion term
+                        # Diffusion term (Laplacian)
                         B = 0
                         if (
-                            j > 0
-                            and j < self.width - 1
-                            and i > 0
+                            i > 0
                             and i < self.height - 1
+                            and j > 0
+                            and j < self.width - 1
                         ):
                             B = (
-                                self.velocity_u[i, j + 1]
-                                + self.velocity_u[i, j - 1]
-                                + self.velocity_u[i + 1, j]
+                                self.velocity_u[i + 1, j]
                                 + self.velocity_u[i - 1, j]
+                                + self.velocity_u[i, j + 1]
+                                + self.velocity_u[i, j - 1]
                                 - 4.0 * self.velocity_u[i, j]
                             )
                         B = np.clip(B, -1e6, 1e6)
@@ -645,19 +691,36 @@ class WatercolorSimulation:
                         )
                         new_u[i, j] = np.clip(new_u[i, j], -1e6, 1e6)
 
+            u_loop_end = time.time()
+            print(
+                f"U velocity updates complete in {u_loop_end - u_loop_start:.4f} seconds"
+            )
+
             # --- Update vertical velocity (v) ---
             # Create mask for valid v velocity cells
             valid_v_mask = np.zeros_like(new_v, dtype=bool)
+            v_count = 0
+
+            v_loop_start = time.time()
             for i in range(1, self.height):
                 for j in range(self.width):
                     top_wet = i > 0 and self.wet_mask[i - 1, j]
                     bottom_wet = i < self.height and self.wet_mask[i, j]
                     valid_v_mask[i, j] = top_wet or bottom_wet
+                    if valid_v_mask[i, j]:
+                        v_count += 1
+
+            print(f"Valid v cells: {v_count}/{valid_v_mask.size}")
 
             # Process only valid v velocities
+            v_updates = 0
             for i in range(1, self.height):
                 for j in range(self.width):
                     if valid_v_mask[i, j]:
+                        v_updates += 1
+                        if v_updates % 1000 == 0:
+                            print(f"Processing v velocity {v_updates}/{v_count}")
+
                         # Get v at cell centers safely
                         v_i_j = 0.5 * (
                             self.velocity_v[max(0, i - 1), j] + self.velocity_v[i, j]
@@ -730,12 +793,26 @@ class WatercolorSimulation:
                         )
                         new_v[i, j] = np.clip(new_v[i, j], -1e6, 1e6)
 
+            v_loop_end = time.time()
+            print(
+                f"V velocity updates complete in {v_loop_end - v_loop_start:.4f} seconds"
+            )
+
             # Update velocity fields
             self.velocity_u = new_u.copy()
             self.velocity_v = new_v.copy()
 
             # Enforce boundary conditions
             self.enforce_boundary_conditions()
+
+            # Update simulation time and check if we're done
+            t += dt
+            print(f"Time stepping progress: {t:.4f}/1.0")
+
+        end_time = time.time()
+        print(
+            f"update_velocities completed in {end_time - start_time:.4f} seconds after {step_count} iterations"
+        )
 
     def move_water(self):
         """
@@ -770,6 +847,9 @@ class WatercolorSimulation:
         new_u = np.copy(self.velocity_u)
         new_v = np.copy(self.velocity_v)
 
+        # Limit maximum pressure changes to prevent numerical instability
+        max_pressure_delta = 1.0
+
         # Iterative pressure correction
         for iter_idx in range(max_iterations):
             max_div = 0.0
@@ -778,39 +858,69 @@ class WatercolorSimulation:
             for i in range(1, self.height - 1):
                 for j in range(1, self.width - 1):
                     if self.wet_mask[i, j] > 0:
+                        # Calculate divergence (outflow - inflow)
                         div = (new_u[i, j + 1] - new_u[i, j]) + (
                             new_v[i + 1, j] - new_v[i, j]
                         )
 
-                        # Update pressure using SOR
-                        pressure[i, j] += relaxation_factor * div
+                        # Limit pressure change to prevent instability
+                        pressure_delta = np.clip(
+                            relaxation_factor * div,
+                            -max_pressure_delta,
+                            max_pressure_delta,
+                        )
 
-                        # Apply pressure correction to velocities
-                        new_u[i, j] -= (
-                            pressure[i, j] - pressure[i, j - 1]
-                            if j > 0
-                            else pressure[i, j]
+                        # Update pressure using SOR with clamping
+                        pressure[i, j] += pressure_delta
+
+                        # Calculate pressure gradients with bounds checking
+                        p_grad_x_left = pressure[i, j] - (
+                            pressure[i, j - 1] if j > 0 else pressure[i, j]
                         )
-                        new_u[i, j + 1] -= (
-                            pressure[i, j + 1] - pressure[i, j]
-                            if j < self.width - 2
-                            else pressure[i, j]
+                        p_grad_x_right = (
+                            pressure[i, j + 1] if j < self.width - 2 else pressure[i, j]
+                        ) - pressure[i, j]
+                        p_grad_y_top = pressure[i, j] - (
+                            pressure[i - 1, j] if i > 0 else pressure[i, j]
                         )
-                        new_v[i, j] -= (
-                            pressure[i, j] - pressure[i - 1, j]
-                            if i > 0
-                            else pressure[i, j]
-                        )
-                        new_v[i + 1, j] -= (
-                            pressure[i + 1, j] - pressure[i, j]
+                        p_grad_y_bottom = (
+                            pressure[i + 1, j]
                             if i < self.height - 2
                             else pressure[i, j]
+                        ) - pressure[i, j]
+
+                        # Clip gradients to prevent large velocity changes
+                        p_grad_x_left = np.clip(
+                            p_grad_x_left, -max_pressure_delta, max_pressure_delta
                         )
+                        p_grad_x_right = np.clip(
+                            p_grad_x_right, -max_pressure_delta, max_pressure_delta
+                        )
+                        p_grad_y_top = np.clip(
+                            p_grad_y_top, -max_pressure_delta, max_pressure_delta
+                        )
+                        p_grad_y_bottom = np.clip(
+                            p_grad_y_bottom, -max_pressure_delta, max_pressure_delta
+                        )
+
+                        # Apply pressure correction to velocities with damping factor
+                        damping = (
+                            0.5  # Reduce correction magnitude to enhance stability
+                        )
+                        new_u[i, j] -= damping * p_grad_x_left
+                        new_u[i, j + 1] += damping * p_grad_x_right
+                        new_v[i, j] -= damping * p_grad_y_top
+                        new_v[i + 1, j] += damping * p_grad_y_bottom
 
                         max_div = max(max_div, abs(div))
 
+            # Log progress for debugging
+            if iter_idx % 10 == 0:  # Log every 10 iterations
+                print(f"Iteration {iter_idx}: max_div = {max_div}")
+
             # Check convergence
             if max_div < tolerance:
+                print(f"Converged after {iter_idx} iterations with max_div = {max_div}")
                 break
 
         # Update velocity fields
