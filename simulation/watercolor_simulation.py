@@ -248,14 +248,14 @@ class WatercolorSimulation:
         self.paper_max_capacity = self.paper.c_max
 
         # Initialize Fluid Simulation
+        slope_y, slope_x = self.paper.slope  # Get slopes from Paper property
         self.fluid_sim = FluidSimulation(
             width,
             height,
             viscosity=self.viscosity,
             drag=self.viscous_drag,
-            # Pass paper slope calculation function or relevant paper data
-            slope_x=self.paper.slope_x,
-            slope_y=self.paper.slope_y,
+            slope_x=slope_x,
+            slope_y=slope_y,
         )
 
         # Initialize simulation layers
@@ -263,7 +263,7 @@ class WatercolorSimulation:
         self.executor = ThreadPoolExecutor()  # Initialize thread pool
 
     def reset(self):
-        \"\"\"Reset the simulation to its initial state.\"\"\"
+        """Reset the simulation to its initial state."""
         # Shallow water layer
         self.wet_mask = np.zeros((self.height, self.width), dtype=np.float32)
         # Reset fluid simulation state
@@ -290,7 +290,7 @@ class WatercolorSimulation:
         # self.fluid_sim.slope_x = self.paper.slope_x # Update fluid sim if paper changes
         # self.fluid_sim.slope_y = self.paper.slope_y
 
-    def generate_paper(self, method: str = \"perlin\", seed: Optional[int] = None):
+    def generate_paper(self, method: str = "perlin", seed: Optional[int] = None):
         """
         Generate a paper texture as a height field.
 

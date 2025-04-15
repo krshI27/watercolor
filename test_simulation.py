@@ -12,6 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from simulation.watercolor_simulation import WatercolorSimulation
 from simulation.renderer import WatercolorRenderer  # Needed for glazing test
 from simulation.paper import Paper  # Needed for some tests
+from simulation.fluid_simulation import (
+    FluidSimulation,
+)  # Needed for relax_divergence test
 
 
 # Fixtures (consider moving common fixtures to conftest.py later)
@@ -508,3 +511,91 @@ def test_get_result(sim, pigment_km):
     assert not np.allclose(img[4, 4, :], [1.0, 1.0, 1.0])
     # Check that non-pigmented area is white
     assert np.allclose(img[0, 0, :], [1.0, 1.0, 1.0])
+
+
+# --- Tests Moved from test_watercolor.py ---
+
+
+@pytest.mark.timeout(60)  # Added timeout
+def test_update_velocities(sim):
+    """Test the update_velocities method of WatercolorSimulation."""
+    sim.set_wet_mask(np.ones((10, 10), dtype=bool))
+    initial_u = sim.velocity_u.copy()
+    initial_v = sim.velocity_v.copy()
+    # Add some pressure gradient to ensure velocity changes
+    sim.pressure[4:6, 4:6] = 0.1
+    # Ensure fluid_sim pressure is updated if necessary (depends on implementation)
+    # sim.fluid_sim.p = sim.pressure # Example if direct update is needed
+
+    sim.update_velocities()  # This calls fluid_sim.update_velocities internally
+
+    assert sim.velocity_u.shape == (10, 11)
+    assert sim.velocity_v.shape == (11, 10)
+    # Velocities should change due to pressure and slope (even if slope is 0)
+    assert not np.allclose(initial_u, sim.velocity_u)
+    assert not np.allclose(initial_v, sim.velocity_v)
+    # Check that the fluid_sim velocities were also updated
+    assert np.allclose(sim.velocity_u, sim.fluid_sim.u)
+    assert np.allclose(sim.velocity_v, sim.fluid_sim.v)
+
+
+@pytest.mark.timeout(60)  # Added timeout
+def test_compute_paper_slope(sim):
+    """Test calculation of paper slope within WatercolorSimulation."""
+    # Create a simple ramp height field directly on the simulation's paper object
+    sim.paper.height_field = np.linspace(0, 1, sim.width * sim.height).reshape(
+        sim.height, sim.width
+    )
+    # Update the paper's internal slope calculation
+    sim.paper.update_slope()
+    # Update the simulation's reference to the slope (if needed, depends on init)
+    sim.fluid_sim.slope_x = sim.paper.slope_x
+    sim.fluid_sim.slope_y = sim.paper.slope_y
+
+    # Call the simulation's method (which might just return paper's slope)
+    dx, dy = (
+        sim.compute_paper_slope()
+    )  # This method might be redundant if paper handles it
+
+    assert dy.shape == (sim.height, sim.width)
+    assert dx.shape == (sim.height, sim.width)
+    # Slope should be roughly constant for a linear ramp
+    assert np.std(dy) < 0.1
+    assert np.std(dx) < 0.1
+    # dy should be larger than dx for this ramp shape (changes faster vertically)
+    assert np.mean(np.abs(dy)) > np.mean(np.abs(dx))
+    # Check consistency with paper object
+    assert np.allclose(dx, sim.paper.slope_x)
+    assert np.allclose(dy, sim.paper.slope_y)
+
+
+@pytest.mark.timeout(60)  # Added timeout
+def test_relax_divergence(sim):
+    """Test divergence relaxation called via WatercolorSimulation."""
+    sim.set_wet_mask(np.ones((10, 10), dtype=bool))
+    # Introduce some divergence directly into fluid_sim
+    sim.fluid_sim.u[:, 5] = 0.1
+    sim.fluid_sim.v[5, :] = -0.1
+    # Ensure sim velocities match if they are separate copies
+    sim.velocity_u = sim.fluid_sim.u
+    sim.velocity_v = sim.fluid_sim.v
+
+    initial_divergence = sim.fluid_sim._divergence()
+    assert np.mean(np.abs(initial_divergence)) > 1e-6
+
+    # Call the simulation's relax_divergence method
+    sim.relax_divergence(
+        max_iterations=50, tolerance=1e-4
+    )  # Use more iterations/tighter tolerance
+
+    final_divergence = sim.fluid_sim._divergence()
+    # Divergence should be significantly reduced
+    assert np.mean(np.abs(final_divergence)) < np.mean(np.abs(initial_divergence))
+    assert (
+        np.mean(np.abs(final_divergence)) < 5e-3
+    )  # Check against a reasonable threshold
+    # Check that simulation's pressure was updated
+    assert not np.allclose(sim.pressure, 0.0)
+    # Check that velocities were adjusted by pressure gradient
+    # (This might require comparing velocities before/after relaxation,
+    # but relax_divergence primarily updates pressure)

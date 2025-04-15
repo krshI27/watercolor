@@ -1,4 +1,3 @@
-# filepath: /app/test_integration.py
 import pytest
 import numpy as np
 import cv2
@@ -14,7 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import functions/modules needed for integration tests
 import auto_watercolorize
-from simulation_main import load_input_image
+
+# simulation_main imports needed for test_main_flow
+from simulation_main import load_input_image, save_output_image, main
+
+# WatercolorSimulation needed for mocking in test_main_flow
+from simulation.watercolor_simulation import WatercolorSimulation
 
 
 # Mock PoolExecutor for testing parallel functions sequentially
@@ -217,3 +221,70 @@ def test_auto_watercolorize_main_pipeline(
 
     # Check that plot showing was not called
     mock_plt_show.assert_not_called()
+
+
+# --- Main Function Integration Test (Moved from test_simulation_main.py) ---
+
+
+@mock.patch("simulation_main.argparse.ArgumentParser")
+# @mock.patch("simulation_main.main") # Don't mock main itself for integration test
+def test_main_flow(mock_argparser, test_image_path, output_dir):
+    """Test the overall structure and flow of the main() function from simulation_main.py."""
+    # Setup mock arguments
+    output_filename = os.path.join(output_dir, "main_output.png")
+    mock_args = argparse.Namespace(
+        input_image=test_image_path,
+        output=output_filename,
+        width=12,  # Use different size for resize check
+        height=8,
+        steps=3,  # Keep low for testing
+        seed=42,
+        verbose=True,
+    )
+    # Configure the mock parser to return these args
+    mock_parser_instance = mock_argparser.return_value
+    mock_parser_instance.parse_args.return_value = mock_args
+
+    # Mock functions called by main
+    with (
+        mock.patch(
+            "simulation_main.load_input_image", wraps=load_input_image
+        ) as mock_load,
+        mock.patch("simulation_main.WatercolorSimulation") as MockSim,
+        mock.patch(
+            "simulation_main.save_output_image", wraps=save_output_image
+        ) as mock_save,
+    ):
+
+        # Configure the mock simulation
+        mock_sim_instance = MockSim.return_value
+        # Create a dummy result image matching the target size
+        dummy_result = np.random.rand(mock_args.height, mock_args.width, 3).astype(
+            np.float32
+        )
+        mock_sim_instance.get_result.return_value = dummy_result
+
+        # Call the actual main function
+        try:
+            main()
+        except Exception as e:
+            pytest.fail(f"main() function execution failed: {e}")
+
+        # Assertions
+        mock_load.assert_called_once_with(
+            test_image_path, target_size=(mock_args.width, mock_args.height)
+        )
+        MockSim.assert_called_once_with(width=mock_args.width, height=mock_args.height)
+        # Check if seed was set if provided
+        # (Need to inspect calls to np.random.seed or random.seed if main uses them)
+        # For now, assume seed is handled internally by WatercolorSimulation if needed
+
+        mock_sim_instance.main_loop.assert_called_once_with(steps=mock_args.steps)
+        mock_sim_instance.get_result.assert_called_once()
+        mock_save.assert_called_once_with(dummy_result, output_filename)
+
+        # Check if the output file was actually created by the wrapped save_output_image
+        assert os.path.exists(output_filename)
+        img_saved = cv2.imread(output_filename)
+        assert img_saved is not None
+        assert img_saved.shape == (mock_args.height, mock_args.width, 3)

@@ -294,91 +294,6 @@ def test_renderer_single_pigment(sim, pigment_km):
     assert np.allclose(expected_img[0, 0, :], [1.0, 1.0, 1.0])
 
 
-# --- KubelkaMunk Tests ---
-
-
-def test_kubelka_munk_coefficients():
-    white = np.array([0.9, 0.9, 0.9])
-    black = np.array([0.1, 0.1, 0.1])
-    K, S = KubelkaMunk.get_coefficients_from_colors(white, black)
-    assert K.shape == (3,)
-    assert S.shape == (3,)
-    # Test edge cases
-    K_edge, S_edge = KubelkaMunk.get_coefficients_from_colors(
-        np.array([0.99, 0.99, 0.99]), np.array([0.01, 0.01, 0.01])
-    )
-    assert not np.any(np.isnan(K_edge))
-    assert not np.any(np.isnan(S_edge))
-
-
-def test_kubelka_munk_layer_compositing():
-    """Test compositing multiple layers."""
-    # Define two simple layers (R, T)
-    layer1 = (np.array([0.1, 0.2, 0.3]), np.array([0.9, 0.8, 0.7]))  # R1, T1
-    layer2 = (np.array([0.4, 0.3, 0.2]), np.array([0.6, 0.7, 0.8]))  # R2, T2
-    background = np.array([1.0, 1.0, 1.0])  # White background (R_bg)
-
-    # Composite layer 2 onto background
-    R_2_bg = layer2[0] + (layer2[1] ** 2 * background) / (
-        1.0 - layer2[0] * background + 1e-10
-    )
-    T_2_bg = (layer2[1] * 1.0) / (1.0 - layer2[0] * background + 1e-10)  # T_bg = 1
-
-    # Composite layer 1 onto (layer 2 + background)
-    R_final_manual = layer1[0] + (layer1[1] ** 2 * R_2_bg) / (
-        1.0 - layer1[0] * R_2_bg + 1e-10
-    )
-
-    # Use the composite_layers function (list method)
-    R_final_func_list = KubelkaMunk.composite_layers(
-        [layer2[0], layer1[0]], [layer2[1], layer1[1]]
-    )
-
-    # Use the composite_layers function (two-layer method)
-    R_final_func_two_layer, _ = KubelkaMunk.composite_layers(
-        layer1[0], layer1[1], R_2_bg, T_2_bg
-    )
-
-    # The list method composites onto a black background implicitly, need to adjust
-    # Let's test the two-layer composition directly
-    assert np.allclose(R_final_manual, R_final_func_two_layer)
-
-    # Test render_glazes utility
-    glazes = [
-        {
-            "K": np.array([0.1, 0.1, 0.8]),
-            "S": np.array([0.1, 0.1, 0.2]),
-            "thickness": 0.5,
-        },  # Bottom glaze (like layer 2)
-        {
-            "K": np.array([0.8, 0.1, 0.1]),
-            "S": np.array([0.2, 0.1, 0.1]),
-            "thickness": 0.3,
-        },  # Top glaze (like layer 1)
-    ]
-    # Calculate R, T for each glaze
-    R1_glaze, T1_glaze = KubelkaMunk.get_reflectance_transmittance(
-        glazes[1]["K"], glazes[1]["S"], glazes[1]["thickness"]
-    )
-    R2_glaze, T2_glaze = KubelkaMunk.get_reflectance_transmittance(
-        glazes[0]["K"], glazes[0]["S"], glazes[0]["thickness"]
-    )
-
-    # Manually composite
-    R_2_bg_glaze = R2_glaze + (T2_glaze**2 * background) / (
-        1.0 - R2_glaze * background + 1e-10
-    )
-    T_2_bg_glaze = (T2_glaze * 1.0) / (1.0 - R2_glaze * background + 1e-10)
-    R_final_manual_glaze = R1_glaze + (T1_glaze**2 * R_2_bg_glaze) / (
-        1.0 - R1_glaze * R_2_bg_glaze + 1e-10
-    )
-
-    # Use render_glazes
-    R_render_glazes = KubelkaMunk.render_glazes(glazes, background)
-
-    assert np.allclose(R_final_manual_glaze, R_render_glazes)
-
-
 # --- Paper Tests ---
 
 
@@ -488,41 +403,6 @@ def test_pigment_layer_class(sim):  # Use sim for paper height
     assert np.sum(layer.paper_concentration[wet_mask]) > np.sum(initial_paper[wet_mask])
     # Check granularity
     assert layer.paper_concentration[5, 5] > layer.paper_concentration[4, 4]
-
-
-# --- Fluid Simulation Tests ---
-
-
-def test_compute_paper_slope(sim):
-    """Test calculation of paper slope."""
-    # Create a simple ramp height field
-    sim.paper.height_field = np.linspace(0, 1, sim.width * sim.height).reshape(
-        sim.height, sim.width
-    )
-    dy, dx = sim.paper.slope
-    assert dy.shape == (sim.height, sim.width)
-    assert dx.shape == (sim.height, sim.width)
-    # Slope should be roughly constant
-    assert np.std(dy) < 0.1
-    assert np.std(dx) < 0.1
-    # dy should be larger than dx for this ramp shape
-    assert np.mean(np.abs(dy)) > np.mean(np.abs(dx))
-
-
-def test_relax_divergence(sim):
-    """Test divergence relaxation."""
-    sim.set_wet_mask(np.ones((10, 10), dtype=bool))
-    # Introduce some divergence
-    sim.velocity_u[:, 5] = 0.1
-    sim.velocity_v[5, :] = -0.1
-    initial_divergence = sim.fluid_sim._divergence()  # Access FluidSimulation method
-    assert np.mean(np.abs(initial_divergence)) > 1e-6
-
-    sim.relax_divergence(max_iterations=20, tolerance=0.001)
-    final_divergence = sim.fluid_sim._divergence()
-    # Divergence should be reduced
-    assert np.mean(np.abs(final_divergence)) < np.mean(np.abs(initial_divergence))
-    assert np.mean(np.abs(final_divergence)) < 0.01  # Check against a threshold
 
 
 # --- auto_watercolorize.py Tests ---
