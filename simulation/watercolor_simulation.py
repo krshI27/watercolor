@@ -13,15 +13,18 @@ The simulation is based on a three-layer model:
 The rendering uses the Kubelka-Munk model for optical compositing of glazes.
 """
 
+import numba
 import numpy as np
 from typing import List, Tuple, Dict, Optional, Union
 from concurrent.futures import ThreadPoolExecutor
 import scipy.ndimage as ndimage
 import tqdm
-import numba
+
 
 @numba.jit(nopython=True, parallel=True, cache=True)
-def _numba_transfer_pigment_loop(g, d, paper_height, wet_mask, density, staining_power, granularity, height, width):
+def _numba_transfer_pigment_loop(
+    g, d, paper_height, wet_mask, density, staining_power, granularity, height, width
+):
     g_new = g.copy()
     d_new = d.copy()
     staining_power_safe = max(1e-6, staining_power)
@@ -40,8 +43,11 @@ def _numba_transfer_pigment_loop(g, d, paper_height, wet_mask, density, staining
                 g_new[i, j] = min(1.0, max(0.0, g[i, j] + delta_up - delta_down))
     return g_new, d_new
 
+
 @numba.jit(nopython=True, parallel=True, cache=True)
-def _numba_capillary_absorption_loop(water_saturation, wet_mask, paper_capacity, absorption_rate, height, width):
+def _numba_capillary_absorption_loop(
+    water_saturation, wet_mask, paper_capacity, absorption_rate, height, width
+):
     new_saturation = water_saturation.copy()
     for i in numba.prange(height):
         for j in range(width):
@@ -52,8 +58,16 @@ def _numba_capillary_absorption_loop(water_saturation, wet_mask, paper_capacity,
                     new_saturation[i, j] += absorbed
     return new_saturation
 
+
 @numba.jit(nopython=True, parallel=True, cache=True)
-def _numba_capillary_diffusion_loop(water_saturation, paper_capacity, min_saturation_for_diffusion, min_saturation_to_receive, height, width):
+def _numba_capillary_diffusion_loop(
+    water_saturation,
+    paper_capacity,
+    min_saturation_for_diffusion,
+    min_saturation_to_receive,
+    height,
+    width,
+):
     new_saturation = water_saturation.copy()
     delta_saturation = np.zeros_like(water_saturation)
     for i in numba.prange(height):
@@ -65,29 +79,45 @@ def _numba_capillary_diffusion_loop(water_saturation, paper_capacity, min_satura
                 neighbor_requests = np.zeros(4)
                 valid_neighbor_indices = []
                 for idx, (ni, nj) in enumerate(neighbors):
-                    if 0 <= ni < height and 0 <= nj < width:
-                        neighbor_saturation = water_saturation[ni, nj]
-                        if neighbor_saturation < paper_capacity[ni, nj] and neighbor_saturation >= min_saturation_to_receive:
+                    # Ensure integer indices for array access
+                    ni_int = int(ni)
+                    nj_int = int(nj)
+                    if 0 <= ni_int < height and 0 <= nj_int < width:
+                        neighbor_saturation = water_saturation[ni_int, nj_int]
+                        if (
+                            neighbor_saturation < paper_capacity[ni_int, nj_int]
+                            and neighbor_saturation >= min_saturation_to_receive
+                        ):
                             if current_saturation > neighbor_saturation:
                                 diff = current_saturation - neighbor_saturation
-                                capacity_left = paper_capacity[ni, nj] - neighbor_saturation
-                                potential_flow = max(0.0, min(diff, capacity_left)) / 4.0
+                                capacity_left = (
+                                    paper_capacity[ni_int, nj_int] - neighbor_saturation
+                                )
+                                potential_flow = (
+                                    max(0.0, min(diff, capacity_left)) / 4.0
+                                )
                                 neighbor_requests[idx] = potential_flow
                                 total_flow_request += potential_flow
                                 valid_neighbor_indices.append(idx)
                 available_to_diffuse = current_saturation - min_saturation_for_diffusion
                 scale_factor = 1.0
-                if total_flow_request > available_to_diffuse and total_flow_request > 1e-6:
+                if (
+                    total_flow_request > available_to_diffuse
+                    and total_flow_request > 1e-6
+                ):
                     scale_factor = available_to_diffuse / total_flow_request
                 actual_total_flow_out = 0.0
                 for idx in valid_neighbor_indices:
                     ni, nj = neighbors[idx]
+                    ni_int = int(ni)
+                    nj_int = int(nj)
                     actual_flow = neighbor_requests[idx] * scale_factor
-                    delta_saturation[ni, nj] += actual_flow
+                    delta_saturation[ni_int, nj_int] += actual_flow
                     actual_total_flow_out += actual_flow
                 delta_saturation[i, j] -= actual_total_flow_out
     new_saturation += delta_saturation
     return np.clip(new_saturation, 0.0, 1.0)
+
 
 @numba.jit(nopython=True, cache=True)
 def _numba_get_reflectance_transmittance(K, S, thickness):
@@ -106,6 +136,7 @@ def _numba_get_reflectance_transmittance(K, S, thickness):
     T = np.clip(b / c_safe, 0.0, 1.0)
     return R, T
 
+
 @numba.jit(nopython=True, cache=True)
 def _numba_composite_layers(R1, T1, R2, T2):
     denominator = 1.0 - R1 * R2
@@ -116,8 +147,18 @@ def _numba_composite_layers(R1, T1, R2, T2):
     T = (T1 * T2) / denominator
     return R, T
 
+
 @numba.jit(nopython=True, parallel=True, cache=True)
-def _numba_render_all_pigments_loop(height, width, num_pigments, pigment_water_list, pigment_paper_list, pigment_properties_K_list, pigment_properties_S_list, background_color):
+def _numba_render_all_pigments_loop(
+    height,
+    width,
+    num_pigments,
+    pigment_water_list,
+    pigment_paper_list,
+    pigment_properties_K_list,
+    pigment_properties_S_list,
+    background_color,
+):
     result = np.ones((height, width, 3), dtype=np.float32) * background_color
     for i in numba.prange(height):
         for j in range(width):
@@ -126,7 +167,9 @@ def _numba_render_all_pigments_loop(height, width, num_pigments, pigment_water_l
             glazes_thickness = []
             has_pigment = False
             for idx in range(num_pigments):
-                thickness_value = pigment_water_list[idx][i, j] + pigment_paper_list[idx][i, j]
+                thickness_value = (
+                    pigment_water_list[idx][i, j] + pigment_paper_list[idx][i, j]
+                )
                 if thickness_value > 0.001:
                     has_pigment = True
                     glazes_K.append(pigment_properties_K_list[idx])
@@ -139,7 +182,9 @@ def _numba_render_all_pigments_loop(height, width, num_pigments, pigment_water_l
                     K = glazes_K[k]
                     S = glazes_S[k]
                     thickness = glazes_thickness[k]
-                    R_glaze, T_glaze = _numba_get_reflectance_transmittance(K, S, thickness)
+                    R_glaze, T_glaze = _numba_get_reflectance_transmittance(
+                        K, S, thickness
+                    )
                     if np.all(T_pixel == 0):
                         denominator = 1.0 - R_glaze * R_pixel
                         for channel in range(len(denominator)):
@@ -148,7 +193,9 @@ def _numba_render_all_pigments_loop(height, width, num_pigments, pigment_water_l
                         R_pixel = R_glaze + (T_glaze**2 * R_pixel) / denominator
                         T_pixel = T_glaze
                     else:
-                        R_pixel, T_pixel = _numba_composite_layers(R_glaze, T_glaze, R_pixel, T_pixel)
+                        R_pixel, T_pixel = _numba_composite_layers(
+                            R_glaze, T_glaze, R_pixel, T_pixel
+                        )
                 result[i, j] = R_pixel
     return result
 
@@ -195,7 +242,7 @@ class WatercolorSimulation:
 
         # Initialize simulation layers
         self.reset()
-        self.executor = ThreadPoolExecutor() # Initialize thread pool
+        self.executor = ThreadPoolExecutor()  # Initialize thread pool
 
     def reset(self):
         """Reset the simulation to its initial state."""
@@ -495,19 +542,22 @@ class WatercolorSimulation:
         )
 
         # Update velocities using time stepping
-        for t in np.arange(0, 1.0, dt):
+        t = 0.0
+        while t < 1.0:
             # Create intermediate arrays for u and v velocities at cell centers
             u_centers = np.zeros((self.height, self.width + 1), dtype=np.float32)
             v_centers = np.zeros((self.height + 1, self.width), dtype=np.float32)
 
             # Calculate u at cell centers
+            # Ensure proper shapes match for broadcasting
             u_centers[:, 1:-1] = 0.5 * (
-                self.velocity_u[:, :-1] + self.velocity_u[:, 1:]
+                self.velocity_u[:, 1:-1] + self.velocity_u[:, 2:]
             )
 
             # Calculate v at cell centers
+            # Ensure proper shapes match for broadcasting
             v_centers[1:-1, :] = 0.5 * (
-                self.velocity_v[:-1, :] + self.velocity_v[1:, :]
+                self.velocity_v[1:-1, :] + self.velocity_v[2:, :]
             )
 
             # --- Update horizontal velocity (u) ---
@@ -687,89 +737,6 @@ class WatercolorSimulation:
             # Enforce boundary conditions
             self.enforce_boundary_conditions()
 
-    def relax_divergence(
-        self,
-        max_iterations: int = 50,
-        tolerance: float = 0.01,
-        relaxation_factor: float = 0.1,
-    ):
-        """
-        Relax the divergence of the velocity field using vectorized operations.
-        This is an optimized implementation of the RelaxDivergence() procedure from the paper.
-
-        Parameters:
-        -----------
-        max_iterations : int
-            Maximum number of relaxation iterations
-        tolerance : float
-            Tolerance for convergence
-        relaxation_factor : float
-            Relaxation factor (ξ - xi)
-        """
-        # Create mask of wet cells for more efficient processing
-        wet_mask = self.wet_mask > 0
-
-        for iteration in range(max_iterations):
-            # Calculate divergence using vectorized operations
-            # Divergence = horizontal flow difference + vertical flow difference
-            horizontal_flow_diff = self.velocity_u[:, 1:] - self.velocity_u[:, :-1]
-            vertical_flow_diff = self.velocity_v[1:, :] - self.velocity_v[:-1, :]
-
-            # Calculate divergence for each cell (where it's wet)
-            divergence = np.zeros_like(self.pressure)
-            divergence[wet_mask] = (
-                horizontal_flow_diff[wet_mask] + vertical_flow_diff[wet_mask]
-            )
-
-            # Find maximum divergence for convergence check
-            max_divergence = np.max(np.abs(divergence))
-
-            # Adjust pressure based on divergence
-            self.pressure[wet_mask] += relaxation_factor * divergence[wet_mask]
-
-            # Adjust velocities using vectorized operations where possible, with boundary handling
-            # Horizontal velocity adjustments (u)
-            # Left side (j > 0)
-            left_adjust = 0.25 * relaxation_factor * divergence
-            right_adjust = 0.25 * relaxation_factor * divergence
-
-            # Apply adjustments to valid cells only (avoiding boundaries)
-            for i in range(self.height):
-                for j in range(self.width):
-                    if wet_mask[i, j]:
-                        # Adjust velocities to reduce divergence
-                        if j > 0:
-                            self.velocity_u[i, j] -= left_adjust[i, j]
-                        if j < self.width:
-                            self.velocity_u[i, j + 1] += right_adjust[i, j]
-                        if i > 0:
-                            self.velocity_v[i, j] -= left_adjust[i, j]
-                        if i < self.height:
-                            self.velocity_v[i + 1, j] += right_adjust[i, j]
-
-            # Enforce boundary conditions
-            self.enforce_boundary_conditions()
-
-            # Check for convergence
-            if max_divergence < tolerance:
-                break
-
-    def flow_outward(self):
-        """
-        Create outward flow of fluid towards the edges to produce the edge-darkening effect.
-        This is an optimized implementation of the FlowOutward() procedure using vectorized operations.
-        """
-        # Create a Gaussian-blurred version of the wet mask
-        kernel_size = self.edge_darkening_kernel_size
-        blurred_mask = ndimage.gaussian_filter(self.wet_mask, sigma=kernel_size / 6.0)
-
-        # Create mask for edge darkening effect (eq. 3 in the paper) using vectorized operations
-        # p ← p - η(1-M')M
-        edge_effect = self.edge_darkening_factor * (1.0 - blurred_mask) * self.wet_mask
-
-        # Apply edge darkening by decreasing pressure near edges (vectorized)
-        self.pressure -= edge_effect
-
     def move_water(self):
         """
         Move water in the shallow-water layer.
@@ -777,7 +744,143 @@ class WatercolorSimulation:
         """
         self.update_velocities()
         self.relax_divergence()
-        self.flow_outward()
+        self.flow_outward()  # Add flow_outward here as required by the paper
+
+    def relax_divergence(
+        self,
+        max_iterations: int = 50,
+        tolerance: float = 0.01,
+        relaxation_factor: float = 0.1,
+    ):
+        """
+        Relax divergence of velocity field to ensure fluid conservation (Section 4.3.2).
+        This is an implementation of pressure-velocity coupling to enforce incompressibility.
+
+        Parameters:
+        -----------
+        max_iterations : int
+            Maximum number of iterations for the pressure solver
+        tolerance : float
+            Convergence tolerance for the pressure solver
+        relaxation_factor : float
+            Relaxation factor for SOR (Successive Over-Relaxation)
+        """
+        # Allocate arrays for the calculation
+        pressure = np.zeros((self.height, self.width), dtype=np.float32)
+        new_u = np.copy(self.velocity_u)
+        new_v = np.copy(self.velocity_v)
+
+        # Iterative pressure correction
+        for iter_idx in range(max_iterations):
+            max_div = 0.0
+
+            # Calculate divergence of velocity field
+            for i in range(1, self.height - 1):
+                for j in range(1, self.width - 1):
+                    if self.wet_mask[i, j] > 0:
+                        div = (new_u[i, j + 1] - new_u[i, j]) + (
+                            new_v[i + 1, j] - new_v[i, j]
+                        )
+
+                        # Update pressure using SOR
+                        pressure[i, j] += relaxation_factor * div
+
+                        # Apply pressure correction to velocities
+                        new_u[i, j] -= (
+                            pressure[i, j] - pressure[i, j - 1]
+                            if j > 0
+                            else pressure[i, j]
+                        )
+                        new_u[i, j + 1] -= (
+                            pressure[i, j + 1] - pressure[i, j]
+                            if j < self.width - 2
+                            else pressure[i, j]
+                        )
+                        new_v[i, j] -= (
+                            pressure[i, j] - pressure[i - 1, j]
+                            if i > 0
+                            else pressure[i, j]
+                        )
+                        new_v[i + 1, j] -= (
+                            pressure[i + 1, j] - pressure[i, j]
+                            if i < self.height - 2
+                            else pressure[i, j]
+                        )
+
+                        max_div = max(max_div, abs(div))
+
+            # Check convergence
+            if max_div < tolerance:
+                break
+
+        # Update velocity fields
+        self.velocity_u = new_u
+        self.velocity_v = new_v
+        self.pressure = pressure
+
+        # Apply boundary conditions
+        self.velocity_u[:, 0] = 0
+        self.velocity_u[:, -1] = 0
+        self.velocity_v[0, :] = 0
+        self.velocity_v[-1, :] = 0
+
+    def move_pigment(self):
+        """
+        Move pigment within the shallow-water layer based on water velocity.
+        Advects pigment particles along the water flow.
+        """
+        # Skip if no pigments
+        if not self.pigment_water:
+            return
+
+        # For each pigment layer, advect it according to velocity field
+        for idx in range(len(self.pigment_water)):
+            # Only advect pigment where there's water
+            pigment_water = self.pigment_water[idx] * self.wet_mask
+
+            # Simple first-order advection scheme
+            # For a more accurate implementation, this could be replaced with a
+            # semi-Lagrangian advection scheme as described in the paper
+            pigment_new = np.zeros_like(pigment_water)
+
+            # Apply advection based on velocity fields
+            for i in range(1, self.height - 1):
+                for j in range(1, self.width - 1):
+                    if self.wet_mask[i, j] > 0:
+                        # Get average velocity at cell center
+                        u_avg = 0.5 * (
+                            self.velocity_u[i, j] + self.velocity_u[i, j + 1]
+                        )
+                        v_avg = 0.5 * (
+                            self.velocity_v[i, j] + self.velocity_v[i + 1, j]
+                        )
+
+                        # Calculate source position (backward tracing)
+                        src_i = max(0, min(self.height - 1, i - v_avg))
+                        src_j = max(0, min(self.width - 1, j - u_avg))
+
+                        # Bilinear interpolation for smooth sampling
+                        i_floor, j_floor = int(src_i), int(src_j)
+                        i_ceil = min(i_floor + 1, self.height - 1)
+                        j_ceil = min(j_floor + 1, self.width - 1)
+
+                        # Interpolation weights
+                        t = src_i - i_floor
+                        s = src_j - j_floor
+
+                        # Bilinear interpolation
+                        pigment_new[i, j] = (
+                            (1 - t) * (1 - s) * pigment_water[i_floor, j_floor]
+                            + t * (1 - s) * pigment_water[i_ceil, j_floor]
+                            + (1 - t) * s * pigment_water[i_floor, j_ceil]
+                            + t * s * pigment_water[i_ceil, j_ceil]
+                        )
+
+            # Update the pigment water layer
+            self.pigment_water[idx] = pigment_new
+
+            # Ensure pigment remains only in wet areas
+            self.pigment_water[idx] *= self.wet_mask
 
     def _transfer_single_pigment(self, pigment_idx):
         g = self.pigment_water[pigment_idx]
@@ -786,9 +889,15 @@ class WatercolorSimulation:
 
         # Use self.paper_height and self.wet_mask directly
         g_new, d_new = _numba_transfer_pigment_loop(
-            g, d, self.paper_height, self.wet_mask, # Use simulation's paper_height
-            props["density"], props["staining_power"], props["granularity"],
-            self.height, self.width
+            g,
+            d,
+            self.paper_height,
+            self.wet_mask,  # Use simulation's paper_height
+            props["density"],
+            props["staining_power"],
+            props["granularity"],
+            self.height,
+            self.width,
         )
         return pigment_idx, g_new, d_new
 
@@ -799,7 +908,9 @@ class WatercolorSimulation:
         """
         futures = []
         for pigment_idx in range(len(self.pigment_water)):
-            futures.append(self.executor.submit(self._transfer_single_pigment, pigment_idx))
+            futures.append(
+                self.executor.submit(self._transfer_single_pigment, pigment_idx)
+            )
 
         # Use a temporary list to store results before updating self
         results = {}
@@ -819,52 +930,73 @@ class WatercolorSimulation:
         # Absorb water from shallow-water layer into paper (using Numba)
         # This function now returns the updated saturation directly
         self.water_saturation = _numba_capillary_absorption_loop(
-            self.water_saturation, self.wet_mask, self.paper_capacity, # Use simulation's paper_capacity
-            self.absorption_rate, self.height, self.width
+            self.water_saturation,
+            self.wet_mask,
+            self.paper_capacity,  # Use simulation's paper_capacity
+            self.absorption_rate,
+            self.height,
+            self.width,
         )
         # Optional: Reduce water/pressure in the shallow layer based on absorbed_water
         # This requires the absorption loop to return the absorbed amount separately if needed.
 
         # Simulate diffusion through capillary layer (using Numba)
         self.water_saturation = _numba_capillary_diffusion_loop(
-             self.water_saturation, self.paper_capacity, # Use simulation's paper_capacity
-             self.min_saturation_for_diffusion, self.min_saturation_to_receive,
-             self.height, self.width
+            self.water_saturation,
+            self.paper_capacity,  # Use simulation's paper_capacity
+            self.min_saturation_for_diffusion,
+            self.min_saturation_to_receive,
+            self.height,
+            self.width,
         )
 
         # Expand wet-area mask where saturation exceeds threshold (vectorized)
         newly_wet = self.water_saturation > self.saturation_threshold
         self.wet_mask = np.maximum(self.wet_mask, newly_wet.astype(np.float32))
 
+    def flow_outward(self):
+        """
+        Create outward flow near edges for edge darkening effect (Section 4.3.3).
+        This simulates pigment migration to the edge by decreasing pressure near the wet mask boundary.
+        """
+        from scipy.ndimage import gaussian_filter
+
+        blurred = gaussian_filter(
+            self.wet_mask.astype(float), sigma=self.edge_darkening_kernel_size / 6
+        )
+        self.pressure -= self.edge_darkening_factor * (1 - blurred) * self.wet_mask
+
     def main_loop(self, num_steps: int = 100):
         """
-        Main simulation loop.
+        Main simulation loop. Uses efficient Numba-accelerated and thread-parallel steps.
         """
-        # Use tqdm for a progress bar if available
         try:
-            # Ensure tqdm is imported if used here
-            # from tqdm import tqdm
-            iterator = tqdm.trange(num_steps, desc="Simulating", ncols=80, leave=True)
-        except NameError: # If tqdm is not available or not imported
-             print(f"Running simulation for {num_steps} steps...")
-             iterator = range(num_steps)
-        except Exception: # Fallback if tqdm fails for other reasons
-             print(f"Running simulation for {num_steps} steps...")
-             iterator = range(num_steps)
+            from tqdm import trange
 
+            iterator = trange(num_steps, desc="Simulating", ncols=80, leave=True)
+        except ImportError:
+            print(f"Running simulation for {num_steps} steps...")
+            iterator = range(num_steps)
+        except Exception:
+            print(f"Running simulation for {num_steps} steps...")
+            iterator = range(num_steps)
 
-        for step in iterator:
-            # Move water in shallow-water layer
-            self.move_water() # Already optimized
+        # Pre-bind methods for speed
+        move_water = self.move_water
+        move_pigment = getattr(self, "move_pigment", None)
+        transfer_pigment = self.transfer_pigment
+        simulate_capillary_flow = self.simulate_capillary_flow
 
-            # Move pigment within water
-            self.move_pigment() # Already optimized
+        for _ in iterator:
+            move_water()  # Numba-optimized
+            if move_pigment:
+                move_pigment()  # If implemented, should be Numba/threaded
+            transfer_pigment()  # Numba + ThreadPoolExecutor
+            simulate_capillary_flow()  # Numba
 
-            # Transfer pigment between water and paper
-            self.transfer_pigment() # Numba + Concurrency
-
-            # Simulate capillary flow
-            self.simulate_capillary_flow() # Numba
+        # Optionally, clean up thread pool
+        if hasattr(self, "executor"):
+            self.executor.shutdown(wait=True)
 
     def get_result(self):
         """
@@ -1043,26 +1175,26 @@ class KubelkaMunk:
 
 
 class WatercolorRenderer:
-    \"\"\"
+    """
     Renderer for watercolor simulations using the Kubelka-Munk model.
-    \"\"\"
+    """
 
     def __init__(self, simulation: WatercolorSimulation):
-        \"\"\"
+        """
         Initialize renderer with a watercolor simulation.
 
         Parameters:
         -----------
         simulation : WatercolorSimulation
             The watercolor simulation to render
-        \"\"\"
+        """
         self.simulation = simulation
         # No KM instance needed if using static Numba functions
 
     def render_pigment(
         self, pigment_idx: int, background_color: np.ndarray = np.array([1.0, 1.0, 1.0])
     ):
-        \"\"\"
+        """
         Render a single pigment layer.
 
         Parameters:
@@ -1076,7 +1208,7 @@ class WatercolorRenderer:
         --------
         np.ndarray
             RGB image of rendered pigment
-        \"\"\"
+        """
         if pigment_idx >= len(self.simulation.pigment_paper):
             raise ValueError(f"Invalid pigment index: {pigment_idx}")
 
@@ -1086,7 +1218,9 @@ class WatercolorRenderer:
 
         # Check if K and S are provided
         if "K" not in kubelka_munk_params or "S" not in kubelka_munk_params:
-            raise ValueError("Kubelka-Munk parameters K and S must be provided for rendering")
+            raise ValueError(
+                "Kubelka-Munk parameters K and S must be provided for rendering"
+            )
 
         K = np.asarray(kubelka_munk_params["K"], dtype=np.float32)
         S = np.asarray(kubelka_munk_params["S"], dtype=np.float32)
@@ -1098,56 +1232,70 @@ class WatercolorRenderer:
 
         # Create output image
         height, width = self.simulation.height, self.simulation.width
-        output = np.ones((height, width, 3), dtype=np.float32) * background_color.astype(np.float32)
+        output = np.ones(
+            (height, width, 3), dtype=np.float32
+        ) * background_color.astype(np.float32)
 
         # Simple loop for single pigment rendering (can be numba-fied too)
         for i in range(height):
             for j in range(width):
                 if thickness[i, j] > 0.001:
-                    R_glaze, T_glaze = _numba_get_reflectance_transmittance(K, S, thickness[i, j])
+                    R_glaze, T_glaze = _numba_get_reflectance_transmittance(
+                        K, S, thickness[i, j]
+                    )
                     # Composite single glaze onto background
                     denominator = 1.0 - R_glaze * background_color
                     for channel in range(len(denominator)):
-                        if denominator[channel] == 0: denominator[channel] = 1e-6
-                    output[i, j] = R_glaze + (T_glaze**2 * background_color) / denominator
+                        if denominator[channel] == 0:
+                            denominator[channel] = 1e-6
+                    output[i, j] = (
+                        R_glaze + (T_glaze**2 * background_color) / denominator
+                    )
         return output
-
 
     def render_all_pigments(
         self, background_color: np.ndarray = np.array([1.0, 1.0, 1.0])
     ):
-        \"\"\"
+        """
         Render all pigment layers composited together using Numba JIT parallel loop.
-        \"\"\"
+        """
         height, width = self.simulation.height, self.simulation.width
         num_pigments = len(self.simulation.pigment_properties)
 
         if num_pigments == 0:
-            return np.ones((height, width, 3), dtype=np.float32) * background_color.astype(np.float32)
+            return np.ones(
+                (height, width, 3), dtype=np.float32
+            ) * background_color.astype(np.float32)
 
         # Prepare data for Numba loop
         pigment_properties_K_list = []
         pigment_properties_S_list = []
         for props in self.simulation.pigment_properties:
             km_params = props.get("kubelka_munk_params", {})
-            K = km_params.get('K', np.zeros(3))
-            S = km_params.get('S', np.zeros(3))
+            K = km_params.get("K", np.zeros(3))
+            S = km_params.get("S", np.zeros(3))
             pigment_properties_K_list.append(np.asarray(K, dtype=np.float32))
             pigment_properties_S_list.append(np.asarray(S, dtype=np.float32))
 
         # Numba works best with lists of arrays of the same type/shape if possible.
         # Ensure pigment_water and pigment_paper are lists of float32 arrays.
-        pigment_water_list = [arr.astype(np.float32) for arr in self.simulation.pigment_water]
-        pigment_paper_list = [arr.astype(np.float32) for arr in self.simulation.pigment_paper]
+        pigment_water_list = [
+            arr.astype(np.float32) for arr in self.simulation.pigment_water
+        ]
+        pigment_paper_list = [
+            arr.astype(np.float32) for arr in self.simulation.pigment_paper
+        ]
 
         # Call the Numba JIT compiled loop
         result = _numba_render_all_pigments_loop(
-            height, width, num_pigments,
-            pigment_water_list, # Pass the list of arrays
-            pigment_paper_list, # Pass the list of arrays
-            pigment_properties_K_list, # Pass the list of arrays
-            pigment_properties_S_list, # Pass the list of arrays
-            background_color.astype(np.float32)
+            height,
+            width,
+            num_pigments,
+            pigment_water_list,  # Pass the list of arrays
+            pigment_paper_list,  # Pass the list of arrays
+            pigment_properties_K_list,  # Pass the list of arrays
+            pigment_properties_S_list,  # Pass the list of arrays
+            background_color.astype(np.float32),
         )
 
         return result

@@ -18,6 +18,7 @@ from typing import List, Dict, Tuple
 import tqdm
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+import logging
 
 # Import simulation components
 from simulation.watercolor_simulation import WatercolorSimulation
@@ -308,31 +309,32 @@ def create_wetness_distribution(
 
 
 def simulate_step(sim, verbose=False):
-    """Run a single simulation step with all processes"""
+    logger = logging.getLogger("auto_watercolorize")
     if verbose:
-        print("        move_water...")
+        logger.debug("        move_water...")
     sim.move_water()
 
     if verbose:
-        print("        move_pigment...")
+        logger.debug("        move_pigment...")
     sim.move_pigment()
 
     if verbose:
-        print("        transfer_pigment...")
+        logger.debug("        transfer_pigment...")
     sim.transfer_pigment()
 
     if verbose:
-        print("        simulate_capillary_flow...")
+        logger.debug("        simulate_capillary_flow...")
     sim.simulate_capillary_flow()
 
     if verbose:
-        print("        step completed.")
+        logger.debug("        step completed.")
 
 
 def run_simulation_chunk(sim, steps, verbose=False):
-    """Run a chunk of simulation steps"""
+    logger = logging.getLogger("auto_watercolorize")
     if verbose:
         for step in tqdm.tqdm(range(steps), desc="Simulation steps", leave=False):
+            logger.debug(f"Simulation step {step+1}/{steps}")
             simulate_step(sim, verbose)
     else:
         for _ in range(steps):
@@ -341,6 +343,9 @@ def run_simulation_chunk(sim, steps, verbose=False):
 
 
 def create_glazes(args, pigment_params, pigment_masks):
+    import logging
+
+    logger = logging.getLogger("auto_watercolorize")
     """
     Create multiple glazes using the watercolor simulation.
     Optimized implementation with multi-scale simulation and improved
@@ -497,7 +502,7 @@ def create_glazes(args, pigment_params, pigment_masks):
 
     # For each glaze, add pigment and simulate
     for glaze_idx in range(args.num_glazes):
-        print(f"Processing glaze {glaze_idx+1}/{args.num_glazes}")
+        logger.info(f"Processing glaze {glaze_idx+1}/{args.num_glazes}")
 
         # Select active simulation based on current stage
         if use_multiscale:
@@ -506,11 +511,11 @@ def create_glazes(args, pigment_params, pigment_masks):
                 sim_active = sim_low_res
                 pigment_indices_active = pigment_indices_low_res
                 active_pigment_masks = small_pigment_masks
-                print("  Using low-resolution simulation for this glaze")
+                logger.info("  Using low-resolution simulation for this glaze")
             else:
                 # For the final glaze, use full resolution
                 # First, copy state from low-res to high-res sim for continuity
-                print("  Upscaling to full-resolution for final glaze")
+                logger.info("  Upscaling to full-resolution for final glaze")
 
                 # Upscale pigment distributions
                 for i in range(num_pigments):
@@ -596,20 +601,20 @@ def create_glazes(args, pigment_params, pigment_masks):
 
         # First stage: Initial water flow (30%)
         initial_flow_steps = int(total_steps_for_glaze * 0.3)
-        print(f"  Initial flow simulation ({initial_flow_steps} steps)...")
+        logger.info(f"  Initial flow simulation ({initial_flow_steps} steps)...")
         run_simulation_chunk(sim_active, initial_flow_steps, args.verbose)
 
         # Apply edge-darkening effect (Section 4.3.3)
-        print("  Enhancing edge darkening...")
+        logger.info("  Enhancing edge darkening...")
         sim_active.flow_outward()
 
         # Second stage: Main pigment transfer (50%)
         main_simulation_steps = int(total_steps_for_glaze * 0.5)
-        print(f"  Main simulation ({main_simulation_steps} steps)...")
+        logger.info(f"  Main simulation ({main_simulation_steps} steps)...")
         run_simulation_chunk(sim_active, main_simulation_steps, args.verbose)
 
         # Pigment control phase - align pigment with target masks
-        print("  Applying pigment control...")
+        logger.info("  Applying pigment control...")
         delta_g = 0.05  # Pigment adjustment threshold
         for i, target_mask in enumerate(active_pigment_masks):
             pigment_idx = pigment_indices_active[i]
@@ -622,7 +627,7 @@ def create_glazes(args, pigment_params, pigment_masks):
             )  # Smoothed difference
 
             # Areas with too little pigment
-            too_little = (diff > delta_g) & sim_active.wet_mask
+            too_little = (diff > delta_g) & (sim_active.wet_mask.astype(bool))
             if np.any(too_little):
                 # Add pigment with safety limits
                 sim_active.pigment_water[pigment_idx][too_little] += delta_g
@@ -633,7 +638,7 @@ def create_glazes(args, pigment_params, pigment_masks):
                 )
 
             # Areas with too much pigment
-            too_much = (diff < -delta_g) & sim_active.wet_mask
+            too_much = (diff < -delta_g) & (sim_active.wet_mask.astype(bool))
             if np.any(too_much):
                 # Add water (increase pressure) to dilute
                 max_pressure = 2.0  # Set a reasonable upper bound
@@ -643,7 +648,7 @@ def create_glazes(args, pigment_params, pigment_masks):
 
         # Final stage: Settling and granulation (20%)
         final_steps = total_steps_for_glaze - initial_flow_steps - main_simulation_steps
-        print(f"  Final settling ({final_steps} steps)...")
+        logger.info(f"  Final settling ({final_steps} steps)...")
         run_simulation_chunk(sim_active, final_steps, args.verbose)
 
         # Enhance granulation effect from Section 4.5 of the paper
@@ -667,7 +672,7 @@ def create_glazes(args, pigment_params, pigment_masks):
                             valley_mask
                         ] -= transfer_amount
 
-        print(f"  Glaze {glaze_idx+1} finished simulation.")
+        logger.info(f"  Glaze {glaze_idx+1} finished simulation.")
 
         # --- Save intermediate glaze state if requested ---
         if args.save_stages:
@@ -688,18 +693,28 @@ def main():
     """Main entry point for automatic watercolorization."""
     args = parse_arguments()
 
+    # Set up logging
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="[%(asctime)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    logger = logging.getLogger("auto_watercolorize")
+
     # Set random seed if provided
     if args.seed is not None:
         np.random.seed(args.seed)
 
-    print(f"Processing image: {args.input_image}")
-    print(f"Output will be saved to: {args.output}")
+    logger.info(f"Processing image: {args.input_image}")
+    logger.info(f"Output will be saved to: {args.output}")
 
     # Load input image
     input_image = load_input_image(args.input_image, (args.width, args.height))
 
     # Perform color separation
+    logger.info("Starting color separation...")
     pigment_params, pigment_masks = color_separation(input_image, args.num_pigments)
+    logger.info("Color separation complete.")
 
     # Save color separation results if requested
     if args.save_stages:
@@ -708,16 +723,20 @@ def main():
             save_stage_output(f"pigment_mask_{i+1}", mask, args.output_dir)
 
     # Create glazes and run simulation
+    logger.info("Starting glaze simulation...")
     result = create_glazes(args, pigment_params, pigment_masks)
+    logger.info("Glaze simulation complete.")
 
     # Save final result
+    logger.info("Rendering and saving final result...")
     plt.figure(figsize=(10, 10))
     plt.imshow(np.clip(result, 0, 1))
     plt.axis("off")
     plt.tight_layout()
     plt.savefig(args.output, dpi=300, bbox_inches="tight")
-    print(f"Watercolor image saved to {args.output}")
+    logger.info(f"Watercolor image saved to {args.output}")
 
 
 if __name__ == "__main__":
+    MAX_WORKERS = os.cpu_count() or 4
     main()
