@@ -1,4 +1,3 @@
-# filepath: /app/test_io_utils.py
 import pytest
 import numpy as np
 import cv2
@@ -7,12 +6,12 @@ from pathlib import Path
 import sys
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-from simulation_main import load_input_image, save_output_image
+from src.simulation.main import load_input_image, save_output_image
 
 
-# Fixtures (Copied from test_simulation_main.py)
+# Fixtures (Copied from test_simulation.main.py)
 @pytest.fixture
 def test_image_path(tmp_path):
     """Fixture to create a dummy 10x10 PNG image."""
@@ -39,7 +38,7 @@ def output_dir(tmp_path):
     return str(path)
 
 
-# --- Function Tests (Moved from test_simulation_main.py) ---
+# --- Function Tests (Moved from test_simulation.main.py) ---
 
 
 def test_load_input_image_ok(test_image_path):

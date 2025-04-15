@@ -1,6 +1,44 @@
 # Computer-Generated Watercolor Simulation
 
-This project implements a physics-based watercolor simulation based on the paper "Computer-Generated Watercolor" by Curtis et al. The simulation creates realistic watercolor effects by modeling the interaction between water, pigment, and paper.
+This project implements a physics-based watercolor simulation based on the paper "Computer-Generated Watercolor" by Curtis et al. The simulation creates realistic watercolor effects by modeling the interaction between water, pigment, and paper. The design is modular and extensible, supporting both command-line and programmatic use.
+
+## Processing Pipeline and Technical Rationale
+
+The simulation pipeline is designed to closely mimic the physical and optical processes of real watercolor painting. Each step is implemented with both efficiency and realism in mind.
+
+### 1. Input Preparation
+- **Image and Mask Loading:** Input images (photographs or test patterns) are loaded and optionally preprocessed. Wet area masks and paper textures can be provided or generated procedurally.
+- **Reasoning:** Allowing both user-supplied and synthetic inputs enables flexible experimentation and reproducibility.
+
+### 2. Paper Structure Generation
+- **Height Field & Capacity Field:** The paper is modeled as a 2D height field (affecting flow direction and granulation) and a capacity field (affecting absorption). Generation methods include Perlin noise, random, fractal, or from image.
+- **Technical Detail:** The height field directly influences the velocity field in the fluid simulation, while the capacity field modulates water absorption and pigment settling.
+- **Reasoning:** This abstraction captures the essential variability of real watercolor paper, which is critical for effects like granulation and backruns.
+
+### 3. Pigment Separation and Parameterization
+- **Color Clustering:** Input images are separated into pigment layers using KMeans clustering. Each cluster represents a pigment with its own mask and color.
+- **Kubelka-Munk Parameters:** For each pigment, absorption (K) and scattering (S) coefficients are derived from the cluster center color.
+- **Reasoning:** This approach enables automatic, data-driven pigment selection and supports the Kubelka-Munk optical model for realistic rendering.
+
+### 4. Fluid Simulation (Three-Layer Model)
+- **Shallow-Water Layer:** Simulates water and pigment flow above the paper using shallow water equations on a staggered grid. Includes velocity updates, divergence relaxation, and edge darkening.
+- **Pigment-Deposition Layer:** Models adsorption/desorption of pigment onto/from the paper, modulated by density, staining power, and granularity.
+- **Capillary Layer:** Simulates water diffusion within the paper for effects like backruns.
+- **Technical Detail:** The staggered grid improves numerical stability and accuracy. Adsorption/desorption rates are functions of local paper height and pigment properties.
+- **Reasoning:** The three-layer abstraction is physically motivated and allows for independent control of key watercolor effects.
+
+### 5. Glazing and Layer Control
+- **Sequential Glaze Simulation:** Multiple glazes are simulated in sequence, each with its own pigment distribution and flow. Control points allow for staged simulation (initial flow, pigment control, settling).
+- **Reasoning:** This mirrors real watercolor technique, where artists build up color and texture through successive washes.
+
+### 6. Kubelka-Munk Optical Compositing
+- **Layer Compositing:** The Kubelka-Munk model is used to composite pigment layers, accounting for absorption and scattering in each glaze.
+- **Technical Detail:** The model is implemented per RGB channel, and compositing is performed from bottom to top (paper to final glaze).
+- **Reasoning:** Kubelka-Munk provides a physically plausible and computationally efficient way to simulate the luminous, layered appearance of watercolor.
+
+### 7. Output Generation
+- **Rendering:** The final composited image is saved or displayed. Intermediate stages can be saved for analysis or debugging.
+- **Reasoning:** Saving intermediate results aids in understanding and tuning the simulation.
 
 ## Project Structure
 
@@ -17,7 +55,7 @@ The simulation is organized into several modules following the paper's structure
 
 ### Entry Point
 
-- **simulation_main.py**: Command-line interface for running the simulation
+- **simulation.main.py**: Command-line interface for running the simulation
 
 ## Architecture Diagrams
 
@@ -139,10 +177,10 @@ The Kubelka-Munk optical model is used for rendering:
 
 ### Command Line Interface
 
-The simulation can be run from the command line using `simulation_main.py`:
+The simulation can be run from the command line using `simulation.main.py`:
 
 ```bash
-python simulation_main.py [options]
+python simulation.main.py [options]
 ```
 
 #### Options:
@@ -169,7 +207,7 @@ python simulation_main.py [options]
 ### Example Usage:
 
 ```bash
-python simulation_main.py --width 1024 --height 1024 --steps 100 --paper-method fractal --seed 42 --output my_watercolor.png
+python simulation.main.py --width 1024 --height 1024 --steps 100 --paper-method fractal --seed 42 --output my_watercolor.png
 ```
 
 ## API Usage
@@ -296,7 +334,7 @@ Key parameters that control the simulation behavior:
 
 Example using test data:
 ```bash
-python simulation_main.py \
+python simulation.main.py \
   --input-image demo_input/color_input.png \
   --input-mask demo_input/wet_mask.png \
   --paper-method from_image \
@@ -537,7 +575,7 @@ Processing a photograph into a watercolor painting involves these steps:
 
 1. **Input preparation**:
    ```bash
-   python auto_watercolorize.py --input-image test_data/sunset.jpg --output sunset_watercolor.png
+   python watercolorize_image.py --input-image test_data/sunset.jpg --output sunset_watercolor.png
    ```
 
 2. **Color Separation**: Input image is separated into 3-5 pigment layers using K-means clustering
@@ -557,7 +595,7 @@ Processing a photograph into a watercolor painting involves these steps:
 
 For additional control, specific parameters can be adjusted:
 ```bash
-python auto_watercolorize.py \
+python watercolorize_image.py \
   --input-image test_data/sunset.jpg \
   --output sunset_watercolor.png \
   --num-pigments 4 \

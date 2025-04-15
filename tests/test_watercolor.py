@@ -15,8 +15,8 @@ from src.simulation.renderer import WatercolorRenderer
 from src.simulation.paper import Paper
 from src.simulation.kubelka_munk import KubelkaMunk
 from src.simulation.pigment import Pigment, PigmentLayer
-import src.auto_watercolorize
-from src.simulation_main import load_input_image, save_stage_output
+import scripts.watercolorize_image
+from src.simulation.main import load_input_image, save_stage_output
 
 
 # Fixtures
@@ -405,7 +405,7 @@ def test_pigment_layer_class(sim):  # Use sim for paper height
     assert layer.paper_concentration[5, 5] > layer.paper_concentration[4, 4]
 
 
-# --- auto_watercolorize.py Tests ---
+# --- watercolorize_image.py Tests ---
 
 
 # Mock PoolExecutor for testing parallel functions sequentially
@@ -423,7 +423,7 @@ class MockExecutor:
         pass
 
 
-@mock.patch("auto_watercolorize.ProcessPoolExecutor", MockExecutor)
+@mock.patch("watercolorize_image.ProcessPoolExecutor", MockExecutor)
 def test_process_pigment_mask(test_image):
     # Mock the necessary input for process_pigment_mask
     # Test image is 10x10, let's use simple clustering
@@ -433,7 +433,7 @@ def test_process_pigment_mask(test_image):
     args = (labels, 0, (10, 10), centers)
 
     # Call the function
-    pigment_params, mask = auto_watercolorize.process_pigment_mask(args)
+    pigment_params, mask = watercolorize_image.process_pigment_mask(args)
 
     # Validate results
     assert isinstance(pigment_params, dict)
@@ -444,10 +444,10 @@ def test_process_pigment_mask(test_image):
     assert np.all(mask >= 0) and np.all(mask <= 1)  # Check normalization
 
 
-@mock.patch("auto_watercolorize.ProcessPoolExecutor", MockExecutor)
+@mock.patch("watercolorize_image.ProcessPoolExecutor", MockExecutor)
 def test_color_separation(test_image):
     # Test with 2 pigments
-    pigment_params, pigment_masks = auto_watercolorize.color_separation(test_image, 2)
+    pigment_params, pigment_masks = watercolorize_image.color_separation(test_image, 2)
 
     # Validate results
     assert len(pigment_params) == 2
@@ -462,7 +462,7 @@ def test_create_paper_structure(output_dir):
     width, height = 20, 15
 
     # Test default generation
-    paper_height, paper_capacity = auto_watercolorize.create_paper_structure(
+    paper_height, paper_capacity = watercolorize_image.create_paper_structure(
         width, height
     )
     assert paper_height.shape == (height, width)
@@ -476,7 +476,7 @@ def test_create_paper_structure(output_dir):
     height_img = (np.ones((height, width)) * 0.5 * 255).astype(np.uint8)
     cv2.imwrite(height_path, height_img)
 
-    paper_height, paper_capacity = auto_watercolorize.create_paper_structure(
+    paper_height, paper_capacity = watercolorize_image.create_paper_structure(
         width, height, height_file=height_path
     )
     assert (
@@ -489,7 +489,7 @@ def test_create_paper_structure(output_dir):
         np.uint8
     )  # High capacity
     cv2.imwrite(capacity_path, capacity_img)
-    paper_height, paper_capacity = auto_watercolorize.create_paper_structure(
+    paper_height, paper_capacity = watercolorize_image.create_paper_structure(
         width, height, capacity_file=capacity_path
     )
     # Capacity should be influenced by the file (though it's also scaled by height)
@@ -501,7 +501,7 @@ def test_create_wetness_distribution(test_image):
     width, height = 10, 10
 
     # Test default generation
-    wetness = auto_watercolorize.create_wetness_distribution(width, height)
+    wetness = watercolorize_image.create_wetness_distribution(width, height)
     assert wetness.shape == (height, width)
     assert np.all(wetness >= 0) and np.all(wetness <= 1)
 
@@ -512,14 +512,14 @@ def test_create_wetness_distribution(test_image):
     wet_img = np.zeros((height, width), dtype=np.uint8)
     wet_img[3:7, 3:7] = 255  # Wet square
     cv2.imwrite(wetness_path, wet_img)
-    wetness = auto_watercolorize.create_wetness_distribution(
+    wetness = watercolorize_image.create_wetness_distribution(
         width, height, wetness_file=wetness_path
     )
     assert np.all(wetness[3:7, 3:7] > 0.9)  # Check wet area
     assert np.all(wetness[:3, :] < 0.1)  # Check dry area
 
     # Test with source image influence
-    wetness_src = auto_watercolorize.create_wetness_distribution(
+    wetness_src = watercolorize_image.create_wetness_distribution(
         width, height, source_image=test_image
     )
     assert wetness_src.shape == (height, width)
@@ -549,8 +549,8 @@ def test_simulate_step(sim, pigment_km):
         "pp": sim.pigment_paper[idx].copy(),
     }
 
-    # Run one step using the helper from auto_watercolorize
-    auto_watercolorize.simulate_step(sim, verbose=False)
+    # Run one step using the helper from scripts.watercolorize_image
+    watercolorize_image.simulate_step(sim, verbose=False)
 
     # Check that state has changed
     assert not np.allclose(state_before["sat"], sim.water_saturation)
@@ -575,8 +575,8 @@ def test_run_simulation_chunk(sim, pigment_km):
     }
 
     steps = 3
-    # Run chunk using the helper from auto_watercolorize
-    auto_watercolorize.run_simulation_chunk(sim, steps, verbose=False)
+    # Run chunk using the helper from scripts.watercolorize_image
+    watercolorize_image.run_simulation_chunk(sim, steps, verbose=False)
 
     # Check that state has changed significantly after multiple steps
     assert not np.allclose(state_before["sat"], sim.water_saturation)
@@ -601,12 +601,12 @@ def test_create_glazes_integration(mock_args, test_image, output_dir, use_multis
     img_resized = cv2.resize(test_image, (mock_args.width, mock_args.height))
 
     # Run color separation
-    pigment_params, pigment_masks = auto_watercolorize.color_separation(
+    pigment_params, pigment_masks = watercolorize_image.color_separation(
         img_resized, mock_args.num_pigments
     )
 
     # Run create_glazes directly (removed timeout logic)
-    final_image = auto_watercolorize.create_glazes(
+    final_image = watercolorize_image.create_glazes(
         mock_args,
         pigment_params,
         pigment_masks,  # Removed use_multiscale
@@ -623,19 +623,19 @@ def test_create_glazes_integration(mock_args, test_image, output_dir, use_multis
 # --- Main function test (basic check) ---
 
 
-@mock.patch("auto_watercolorize.argparse.ArgumentParser")
-@mock.patch("auto_watercolorize.main")  # Mock the main function itself
+@mock.patch("watercolorize_image.argparse.ArgumentParser")
+@mock.patch("watercolorize_image.main")  # Mock the main function itself
 def test_main_entrypoint(mock_main, mock_argparser):
     """Test if the script's main entry point runs."""
     # This is a basic check to ensure the __main__ block can execute
     # We mock the actual main logic to avoid running the full simulation
     try:
         # Simulate running the script
-        import auto_watercolorize as script
+        import watercolorize_image as script
 
         # Accessing __name__ doesn't trigger execution here,
         # but confirms the script is importable without immediate error.
-        assert script.__name__ == "auto_watercolorize"
+        assert script.__name__ == "watercolorize_image"
     except Exception as e:
         pytest.fail(f"Script entry point failed: {e}")
 

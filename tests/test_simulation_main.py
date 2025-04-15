@@ -8,8 +8,8 @@ from unittest import mock
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-# Only need parse_arguments from simulation_main
-from src.simulation_main import parse_arguments
+# Only need parse_arguments from simulation.main
+from src.simulation.main import parse_arguments
 
 
 # --- Function Tests ---

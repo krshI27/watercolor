@@ -191,3 +191,9 @@ class FluidSimulation:
         self.u[:, -1] = 0.0
         self.v[0, :] = 0.0
         self.v[-1, :] = 0.0
+
+    def reset(self):
+        """Reset the fluid simulation to its initial state."""
+        self.u = np.zeros((self.height, self.width + 1))
+        self.v = np.zeros((self.height + 1, self.width))
+        self.p = np.zeros((self.height, self.width))

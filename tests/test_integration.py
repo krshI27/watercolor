@@ -9,16 +9,11 @@ from unittest import mock
 from concurrent.futures import ProcessPoolExecutor  # Keep original for mock target
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-# Import functions/modules needed for integration tests
-import auto_watercolorize
-
-# simulation_main imports needed for test_main_flow
-from simulation_main import load_input_image, save_output_image, main
-
-# WatercolorSimulation needed for mocking in test_main_flow
-from simulation.watercolor_simulation import WatercolorSimulation
+import scripts.watercolorize_image as watercolorize_image
+from src.simulation.main import load_input_image, save_output_image, main
+from src.simulation.watercolor_simulation import WatercolorSimulation
 
 
 # Mock PoolExecutor for testing parallel functions sequentially
@@ -93,18 +88,18 @@ def mock_args_integration(test_image_path, output_dir):
 
 @pytest.mark.timeout(60)  # Apply timeout to the integration test
 @mock.patch(
-    "auto_watercolorize.ProcessPoolExecutor", MockExecutor
+    "watercolorize_image.ProcessPoolExecutor", MockExecutor
 )  # Mock parallel execution
 def test_create_glazes_integration(mock_args_integration, test_image, output_dir):
     """
     Test the full create_glazes function which orchestrates simulation for glazes.
-    This is an integration test for the core simulation pipeline within auto_watercolorize.
+    This is an integration test for the core simulation pipeline within watercolorize_image.
     """
     args = mock_args_integration
     img_resized = test_image  # Already loaded with correct size
 
     # 1. Run color separation (using mocked executor)
-    pigment_params, pigment_masks = auto_watercolorize.color_separation(
+    pigment_params, pigment_masks = watercolorize_image.color_separation(
         img_resized, args.num_pigments
     )
     assert len(pigment_params) == args.num_pigments
@@ -112,7 +107,7 @@ def test_create_glazes_integration(mock_args_integration, test_image, output_dir
 
     # 2. Run create_glazes
     # This function internally creates paper, wetness, simulation, runs steps, renders
-    final_image = auto_watercolorize.create_glazes(args, pigment_params, pigment_masks)
+    final_image = watercolorize_image.create_glazes(args, pigment_params, pigment_masks)
 
     # 3. Validate results
     assert isinstance(final_image, np.ndarray)
@@ -144,13 +139,13 @@ def test_create_glazes_integration(mock_args_integration, test_image, output_dir
 
 
 @pytest.mark.timeout(120)  # Longer timeout for full pipeline test
-@mock.patch("auto_watercolorize.plt.show")  # Prevent showing plot
-@mock.patch("auto_watercolorize.cv2.imwrite")  # Mock saving final image
-@mock.patch("auto_watercolorize.save_stage_output")  # Mock stage saving
+@mock.patch("watercolorize_image.plt.show")  # Prevent showing plot
+@mock.patch("watercolorize_image.cv2.imwrite")  # Mock saving final image
+@mock.patch("watercolorize_image.save_stage_output")  # Mock stage saving
 @mock.patch(
-    "auto_watercolorize.ProcessPoolExecutor", MockExecutor
+    "watercolorize_image.ProcessPoolExecutor", MockExecutor
 )  # Mock parallel execution
-def test_auto_watercolorize_main_pipeline(
+def test_watercolorize_image_main_pipeline(
     mock_save_stage,
     mock_imwrite,
     mock_plt_show,
@@ -159,7 +154,7 @@ def test_auto_watercolorize_main_pipeline(
     output_dir,
 ):
     """
-    Test the main execution flow of auto_watercolorize.py script.
+    Test the main execution flow of watercolorize_image.py script.
     Mocks saving and showing images, focuses on pipeline execution.
     """
     args = mock_args_integration
@@ -173,7 +168,7 @@ def test_auto_watercolorize_main_pipeline(
 
     # Prepare command line arguments for the main function call
     cli_args = [
-        "auto_watercolorize.py",  # Script name
+        "watercolorize_image.py",  # Script name
         args.input_image,  # Positional argument
         "--output",
         args.output,
@@ -199,9 +194,9 @@ def test_auto_watercolorize_main_pipeline(
         # Call the main function that's guarded by __name__ == "__main__"
         # Need to execute the script context or call main directly
         try:
-            auto_watercolorize.main()
+            watercolorize_image.main()
         except Exception as e:
-            pytest.fail(f"auto_watercolorize.main() raised an exception: {e}")
+            pytest.fail(f"watercolorize_image.main() raised an exception: {e}")
 
     # --- Assertions ---
     # Check that the pipeline ran and attempted to save the final image
@@ -223,13 +218,13 @@ def test_auto_watercolorize_main_pipeline(
     mock_plt_show.assert_not_called()
 
 
-# --- Main Function Integration Test (Moved from test_simulation_main.py) ---
+# --- Main Function Integration Test (Moved from test_simulation.main.py) ---
 
 
-@mock.patch("simulation_main.argparse.ArgumentParser")
-# @mock.patch("simulation_main.main") # Don't mock main itself for integration test
+@mock.patch("simulation.main.argparse.ArgumentParser")
+# @mock.patch("simulation.main.main") # Don't mock main itself for integration test
 def test_main_flow(mock_argparser, test_image_path, output_dir):
-    """Test the overall structure and flow of the main() function from simulation_main.py."""
+    """Test the overall structure and flow of the main() function from simulation.main.py."""
     # Setup mock arguments
     output_filename = os.path.join(output_dir, "main_output.png")
     mock_args = argparse.Namespace(
@@ -248,11 +243,11 @@ def test_main_flow(mock_argparser, test_image_path, output_dir):
     # Mock functions called by main
     with (
         mock.patch(
-            "simulation_main.load_input_image", wraps=load_input_image
+            "simulation.main.load_input_image", wraps=load_input_image
         ) as mock_load,
-        mock.patch("simulation_main.WatercolorSimulation") as MockSim,
+        mock.patch("simulation.main.WatercolorSimulation") as MockSim,
         mock.patch(
-            "simulation_main.save_output_image", wraps=save_output_image
+            "simulation.main.save_output_image", wraps=save_output_image
         ) as mock_save,
     ):
 

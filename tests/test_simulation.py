@@ -7,14 +7,12 @@ import sys
 import argparse
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-from simulation.watercolor_simulation import WatercolorSimulation
-from simulation.renderer import WatercolorRenderer  # Needed for glazing test
-from simulation.paper import Paper  # Needed for some tests
-from simulation.fluid_simulation import (
-    FluidSimulation,
-)  # Needed for relax_divergence test
+from src.simulation.watercolor_simulation import WatercolorSimulation
+from src.simulation.renderer import WatercolorRenderer
+from src.simulation.paper import Paper
+from src.simulation.fluid_simulation import FluidSimulation
 
 
 # Fixtures (consider moving common fixtures to conftest.py later)

@@ -12,7 +12,7 @@ dependencies:
   - scikit-learn
   - numba
   - tqdm  # Added tqdm for progress bars
-  - pillow # Added Pillow for image handling in simulation_main
+  - pillow # Added Pillow for image handling in simulation.main
   - pip
   - pip:
       - pymixbox

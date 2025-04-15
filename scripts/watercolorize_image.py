@@ -24,14 +24,14 @@ import logging
 MAX_WORKERS = os.cpu_count() or 4
 
 # Import simulation components
-from simulation.watercolor_simulation import WatercolorSimulation
-from simulation.renderer import WatercolorRenderer
+from src.simulation.watercolor_simulation import WatercolorSimulation
+from src.simulation.renderer import WatercolorRenderer
 
 try:
-    from simulation.optimized_kernels import CUDA_AVAILABLE
+    from src.simulation.optimized_kernels import CUDA_AVAILABLE
 except ImportError:
     CUDA_AVAILABLE = False
-from simulation_main import save_stage_output, load_input_image
+from src.simulation.main import save_stage_output, load_input_image
 
 
 def parse_arguments():
@@ -249,7 +249,7 @@ def create_paper_structure(
             )
     else:
         # Generate paper texture using the Paper class
-        from simulation.paper import Paper
+        from src.simulation.paper import Paper
 
         paper = Paper(width, height, c_min=c_min, c_max=c_max)
         paper.generate("perlin")
@@ -312,7 +312,7 @@ def create_wetness_distribution(
 
 
 def simulate_step(sim, verbose=False):
-    logger = logging.getLogger("auto_watercolorize")
+    logger = logging.getLogger("watercolorize_image")
     if verbose:
         logger.debug("        move_water...")
     sim.move_water()
@@ -334,7 +334,7 @@ def simulate_step(sim, verbose=False):
 
 
 def run_simulation_chunk(sim, steps, verbose=False):
-    logger = logging.getLogger("auto_watercolorize")
+    logger = logging.getLogger("watercolorize_image")
     if verbose:
         for step in tqdm.tqdm(range(steps), desc="Simulation steps", leave=False):
             logger.debug(f"Simulation step {step+1}/{steps}")
@@ -348,7 +348,7 @@ def run_simulation_chunk(sim, steps, verbose=False):
 def create_glazes(args, pigment_params, pigment_masks):
     import logging
 
-    logger = logging.getLogger("auto_watercolorize")
+    logger = logging.getLogger("watercolorize_image")
     """
     Create multiple glazes using the watercolor simulation.
     Optimized implementation with multi-scale simulation and improved
@@ -702,7 +702,7 @@ def main():
         format="[%(asctime)s] %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    logger = logging.getLogger("auto_watercolorize")
+    logger = logging.getLogger("watercolorize_image")
 
     # Set random seed if provided
     if args.seed is not None:

@@ -249,14 +249,10 @@ class WatercolorSimulation:
 
         # Initialize Fluid Simulation
         slope_y, slope_x = self.paper.slope  # Get slopes from Paper property
-        self.fluid_sim = FluidSimulation(
-            width,
-            height,
-            viscosity=self.viscosity,
-            drag=self.viscous_drag,
-            slope_x=slope_x,
-            slope_y=slope_y,
-        )
+        self.fluid_sim = FluidSimulation(width, height)
+        self.fluid_sim.viscosity = self.viscosity
+        self.fluid_sim.viscous_drag = self.viscous_drag
+        # Note: slope_x and slope_y are used in update_velocities, not constructor
 
         # Initialize simulation layers
         self.reset()

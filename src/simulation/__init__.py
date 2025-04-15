@@ -3,7 +3,7 @@
 Watercolor simulation package.
 Based on 'Computer-Generated Watercolor' by Curtis et al.
 """
-
+from .main import *
 from .paper import Paper
 from .fluid_simulation import FluidSimulation
 from .pigment import Pigment

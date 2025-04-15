@@ -7,9 +7,9 @@ from pathlib import Path
 import sys
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-from simulation.paper import Paper
+from src.simulation.paper import Paper
 
 
 # Fixtures
