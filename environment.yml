@@ -7,6 +7,8 @@ dependencies:
   - pycairo
   - streamlit
   - pytest
+  - pytest-cov
+  - hypothesis
   - pyopengl
   - pathlib
   - scikit-learn

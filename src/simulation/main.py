@@ -16,8 +16,8 @@ from PIL import Image
 import cv2
 
 # Import the simulation components
-from simulation.watercolor_simulation import WatercolorSimulation
-from simulation.renderer import WatercolorRenderer
+from .watercolor_simulation import WatercolorSimulation
+from .renderer import WatercolorRenderer
 
 
 def parse_arguments():
