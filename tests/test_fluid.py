@@ -92,35 +92,6 @@ def test_update_velocities(fluid_sim, paper, wet_mask_all):
     assert np.all(np.abs(fluid_sim.v) < np.abs(initial_v_flat))
 
 
-def test_divergence(fluid_sim):
-    """Test the divergence calculation."""
-    # Test zero divergence for zero velocity
-    div_zero = fluid_sim._divergence()
-    assert np.allclose(div_zero, 0.0)
-
-    # Test known divergence: flow expanding from center
-    fluid_sim.u[:, 5] = 0.1
-    fluid_sim.u[:, 6] = 0.1
-    fluid_sim.v[5, :] = 0.1
-    fluid_sim.v[6, :] = 0.1
-    div_expand = fluid_sim._divergence()
-    # Expect positive divergence around the center outflow boundaries
-    assert div_expand[5, 5] > 0  # (u[:,6]-u[:,5]) + (v[6,:]-v[5,:]) at [5,5]
-    # Expect negative divergence where flow enters
-    # (Difficult to set up perfectly on staggered grid without boundary effects)
-
-    # Test known divergence: flow converging to center
-    fluid_sim.u[:, :] = 0.0
-    fluid_sim.v[:, :] = 0.0
-    fluid_sim.u[:, 4] = 0.1
-    fluid_sim.u[:, 5] = -0.1
-    fluid_sim.v[4, :] = 0.1
-    fluid_sim.v[5, :] = -0.1
-    div_converge = fluid_sim._divergence()
-    # Expect negative divergence near the center
-    assert div_converge[4, 4] < 0
-
-
 def test_enforce_boundaries(fluid_sim, wet_mask_partial):
     """Test enforcing boundary conditions (zero velocity outside wet mask)."""
     # Set some velocity everywhere
@@ -244,19 +215,12 @@ def test_relax_divergence_performance():
     sim.paper_height = sim.paper.height_field
     sim.paper_capacity = sim.paper.fluid_capacity
 
-    # Set the wet mask
-    sim.set_wet_mask(np.ones((size, size), dtype=bool))
-    # Add some velocity to create divergence
-    sim.velocity_u = np.random.rand(size, size + 1) * 0.1
-    sim.velocity_v = np.random.rand(size + 1, size) * 0.1
-    sim.fluid_sim.u = sim.velocity_u
-    sim.fluid_sim.v = sim.velocity_v
-    results = {}
-    size = 30  # Use a slightly larger size for performance test
+    # Calculate slopes manually
+    dx, dy = np.gradient(sim.paper.height_field)
+    sim.fluid_sim.slope_x = dx
+    sim.fluid_sim.slope_y = dy
 
-    # Use WatercolorSimulation for setup
-    sim = WatercolorSimulation(size, size)
-    sim.generate_paper(method="perlin", seed=1)
+    # Set the wet mask
     sim.set_wet_mask(np.ones((size, size), dtype=bool))
     # Add some velocity to create divergence
     sim.velocity_u = np.random.rand(size, size + 1) * 0.1

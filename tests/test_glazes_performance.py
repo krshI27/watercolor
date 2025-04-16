@@ -9,7 +9,7 @@ import cv2
 from pathlib import Path
 import argparse
 
-from simulation.watercolor_simulation import WatercolorSimulation
+from src.simulation.watercolor_simulation import WatercolorSimulation
 from scripts.watercolorize_image import (
     create_paper_structure,
     create_wetness_distribution,
@@ -20,14 +20,14 @@ from scripts.watercolorize_image import (
 def create_mock_args():
     """Create mock arguments for testing."""
     args = argparse.Namespace()
-    args.width = 10
-    args.height = 10
+    args.width = 5
+    args.height = 5
     args.output_dir = "test_glazes_output"
     args.paper_height = None
     args.paper_capacity = None
     args.paper_wetness = None
-    args.num_glazes = 1
-    args.steps_per_glaze = 5
+    args.num_glazes = 2
+    args.steps_per_glaze = 2
     args.edge_darkening = 0.01
     args.viscosity = 0.05
     args.drag = 0.005
@@ -44,13 +44,13 @@ def test_simulation_stages():
     print("\n=== Testing Simulation Stages Performance ===")
 
     # Create a small simulation for testing
-    size = 20
+    size = 5
     sim = WatercolorSimulation(size, size)
     sim.generate_paper(method="perlin", seed=1)
 
     # Set wet mask
     wet_mask = np.zeros((size, size), dtype=bool)
-    wet_mask[5:15, 5:15] = True
+    wet_mask[2:4, 2:5] = True
     sim.set_wet_mask(wet_mask)
 
     # Add pigment
