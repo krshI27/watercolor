@@ -23,9 +23,14 @@ def sim_size():
 
 
 @pytest.fixture
-def sim(sim_size):
-    """Fixture for a basic WatercolorSimulation instance."""
-    return WatercolorSimulation(sim_size[0], sim_size[1])
+def sim():
+    """Fixture for a basic WatercolorSimulation instance.
+
+    Kept at 10x10 independent of ``sim_size`` because effect/pigment tests
+    build masks at that shape. FluidSimulation gets the non-square ``sim_size``
+    via its own fixture to still exercise dimension handling.
+    """
+    return WatercolorSimulation(10, 10)
 
 
 @pytest.fixture

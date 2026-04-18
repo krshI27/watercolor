@@ -101,28 +101,63 @@ class FluidSimulation:
     - Edge darkening effects at boundaries
     """
 
-    def __init__(self, width: int, height: int):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        viscosity: float = 0.1,
+        viscous_drag: float = 0.01,
+        edge_darkening: float = 0.03,
+    ):
         self.width = width
         self.height = height
 
-        # Initialize fields
-        self.u = np.zeros((height, width + 1))  # x velocity at cell boundaries
-        self.v = np.zeros((height + 1, width))  # y velocity at cell boundaries
-        self.p = np.zeros((height, width))  # pressure at cell centers
+        # Initialize fields on the staggered (MAC) grid from Section 4.3:
+        # u lives on vertical cell boundaries, v on horizontal, pressure at cell centers.
+        self.u = np.zeros((height, width + 1))
+        self.v = np.zeros((height + 1, width))
+        self.p = np.zeros((height, width))
 
-        # Parameters from paper
-        self.viscosity = 0.1  # μ
-        self.viscous_drag = 0.01  # κ
-        self.edge_darkening = 0.03  # η
+        # Paper-physical parameters (μ, κ, η in Section 4.3).
+        self.viscosity = viscosity
+        self.viscous_drag = viscous_drag
+        self.edge_darkening = edge_darkening
+
+    def update(self, paper, wet_mask: np.ndarray, dt: float = 0.1):
+        """Run one MoveWater step (§4.3): UpdateVelocities → RelaxDivergence → FlowOutward.
+
+        Derives slopes from ``paper.height_field`` directly (rather than via a
+        ``paper.slope`` property) so the method also works with lightweight
+        paper test doubles that only expose ``height_field`` and
+        ``update_capacity``.
+        """
+        paper.update_capacity()
+        height_field = np.asarray(paper.height_field, dtype=np.float32)
+        slope_y, slope_x = np.gradient(height_field)
+        self._update_velocities(slope_x, slope_y, wet_mask, dt)
+        self.relax_divergence(wet_mask)
+        self.flow_outward(wet_mask)
 
     def update_velocities(self, paper, wet_mask: np.ndarray, dt: float = 0.1):
+        """UpdateVelocities step from §4.3 — equations (1) and (2).
+
+        Accepts any paper object exposing either a ``.slope`` property (the
+        production :class:`Paper`) or just a ``.height_field`` attribute.
         """
-        Update water velocities using Numba optimized function.
-        Implements equations (1) and (2) from Section 4.3 of the source paper.
-        """
-        dy_full, dx_full = paper.slope
-        slope_x = dx_full
-        slope_y = dy_full
+        slope_y, slope_x = self._slopes_from_paper(paper)
+        self._update_velocities(slope_x, slope_y, wet_mask, dt)
+
+    @staticmethod
+    def _slopes_from_paper(paper):
+        slope_attr = getattr(paper, "slope", None)
+        if isinstance(slope_attr, tuple) and len(slope_attr) == 2:
+            return slope_attr
+        height_field = np.asarray(paper.height_field, dtype=np.float32)
+        return np.gradient(height_field)
+
+    def _update_velocities(
+        self, slope_x: np.ndarray, slope_y: np.ndarray, wet_mask: np.ndarray, dt: float
+    ) -> None:
         u = np.ascontiguousarray(self.u, dtype=np.float32)
         v = np.ascontiguousarray(self.v, dtype=np.float32)
         p = np.ascontiguousarray(self.p, dtype=np.float32)
@@ -144,7 +179,6 @@ class FluidSimulation:
         )
         self.u = u_new
         self.v = v_new
-        # Boundary conditions handled within Numba function
 
     def relax_divergence(
         self, wet_mask: np.ndarray, iterations: int = 50, tolerance: float = 0.01

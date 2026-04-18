@@ -5,8 +5,46 @@ Implements Kubelka-Munk optical model from Section 5 of the paper.
 """
 
 import numpy as np
+import cv2
 from .fluid_simulation import FluidSimulation
 from .kubelka_munk import KubelkaMunk
+
+
+class Renderer:
+    """Base renderer: holds output buffer and optional paper texture."""
+
+    def __init__(self, width: int, height: int):
+        self.width = width
+        self.height = height
+        self.paper_texture: np.ndarray | None = None
+        self.output_buffer = np.ones((height, width, 3), dtype=np.float32)
+
+    def load_texture(self, texture_path, texture_type: str = "canvas") -> None:
+        """Load a subtle paper texture from an image path.
+
+        Passing ``None`` clears the texture. Loaded textures are converted to
+        grayscale, resized to the renderer grid, and normalized to [0.95, 1.0]
+        so they modulate the final render gently.
+        """
+        if texture_path is None:
+            self.paper_texture = None
+            return
+
+        img = cv2.imread(str(texture_path), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise ValueError(f"Could not load texture: {texture_path}")
+
+        img = cv2.resize(img, (self.width, self.height), interpolation=cv2.INTER_AREA)
+        img = img.astype(np.float32) / 255.0
+
+        # Map to [0.95, 1.0] so the texture is subtle regardless of source contrast.
+        lo, hi = float(img.min()), float(img.max())
+        if hi - lo < 1e-6:
+            normalized = np.full_like(img, 0.975, dtype=np.float32)
+        else:
+            normalized = 0.95 + 0.05 * (img - lo) / (hi - lo)
+
+        self.paper_texture = normalized
 
 
 class WatercolorRenderer:
