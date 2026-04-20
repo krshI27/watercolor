@@ -1,4 +1,6 @@
-name: base
+name: watercolor
+channels:
+  - conda-forge
 dependencies:
   - python=3.14
   - numpy
@@ -19,3 +21,4 @@ dependencies:
   - pip:
       - pymixbox
       - opencv-python-headless
+      - -e .
