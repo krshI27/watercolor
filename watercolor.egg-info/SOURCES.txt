@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+tests/test_utils.py
+watercolor/__init__.py
+watercolor/watercolorize.py
+watercolor.egg-info/PKG-INFO
+watercolor.egg-info/SOURCES.txt
+watercolor.egg-info/dependency_links.txt
+watercolor.egg-info/requires.txt
+watercolor.egg-info/top_level.txt
