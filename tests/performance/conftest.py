@@ -8,10 +8,10 @@ from pathlib import Path
 from unittest import mock
 
 # Common imports for all tests
-from src.simulation.watercolor_simulation import WatercolorSimulation
-from src.simulation.paper import Paper
-from src.simulation.fluid_simulation import FluidSimulation
-from src.simulation.main import load_input_image
+from watercolor.simulation.watercolor_simulation import WatercolorSimulation
+from watercolor.simulation.paper import Paper
+from watercolor.simulation.fluid_simulation import FluidSimulation
+from watercolor.simulation.main import load_input_image
 
 # --- Simulation Fixtures ---
 

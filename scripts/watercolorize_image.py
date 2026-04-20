@@ -24,14 +24,14 @@ import logging
 MAX_WORKERS = os.cpu_count() or 4
 
 # Import simulation components
-from src.simulation.watercolor_simulation import WatercolorSimulation
-from src.simulation.renderer import WatercolorRenderer
+from watercolor.simulation.watercolor_simulation import WatercolorSimulation
+from watercolor.simulation.renderer import WatercolorRenderer
 
 try:
-    from src.simulation.optimized_kernels import CUDA_AVAILABLE
+    from watercolor.simulation.optimized_kernels import CUDA_AVAILABLE
 except ImportError:
     CUDA_AVAILABLE = False
-from src.simulation.main import save_stage_output, load_input_image
+from watercolor.simulation.main import save_stage_output, load_input_image
 
 
 def parse_arguments():
@@ -249,7 +249,7 @@ def create_paper_structure(
             )
     else:
         # Generate paper texture using the Paper class
-        from src.simulation.paper import Paper
+        from watercolor.simulation.paper import Paper
 
         paper = Paper(width, height, c_min=c_min, c_max=c_max)
         paper.generate("perlin")

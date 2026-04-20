@@ -2,7 +2,7 @@
 import pytest
 import numpy as np
 
-from src.simulation.kubelka_munk import KubelkaMunk
+from watercolor.simulation.kubelka_munk import KubelkaMunk
 
 # --- Kubelka-Munk Tests ---
 

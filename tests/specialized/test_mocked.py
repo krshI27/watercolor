@@ -9,8 +9,8 @@ import pytest
 import numpy as np
 from unittest.mock import MagicMock, patch
 
-from src.simulation.fluid_simulation import FluidSimulation
-from src.simulation.watercolor_simulation import WatercolorSimulation
+from watercolor.simulation.fluid_simulation import FluidSimulation
+from watercolor.simulation.watercolor_simulation import WatercolorSimulation
 
 
 # --- Advanced Parametrized Fixtures ---

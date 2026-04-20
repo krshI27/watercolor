@@ -9,7 +9,7 @@ import cv2
 from pathlib import Path
 import argparse
 
-from src.simulation.watercolor_simulation import WatercolorSimulation
+from watercolor.simulation.watercolor_simulation import WatercolorSimulation
 from scripts.watercolorize_image import (
     create_paper_structure,
     create_wetness_distribution,

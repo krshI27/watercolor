@@ -8,7 +8,7 @@ in the watercolor simulation, primarily implemented with Numba.
 import pytest
 import numpy as np
 
-from src.simulation.optimized_kernels import advect_pigment_kernel
+from watercolor.simulation.optimized_kernels import advect_pigment_kernel
 
 
 # --- Kernel Tests ---

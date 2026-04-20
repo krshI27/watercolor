@@ -8,7 +8,7 @@ import sys
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent) + "/src")
 
-from src.simulation.main import load_input_image, save_output_image
+from watercolor.simulation.main import load_input_image, save_output_image
 
 
 # Fixtures (Copied from test_simulation.main.py)

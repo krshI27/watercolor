@@ -11,8 +11,8 @@ import numpy as np
 from hypothesis import given, strategies as st
 from hypothesis.extra.numpy import arrays
 
-from src.simulation.fluid_simulation import FluidSimulation
-from src.simulation.paper import Paper
+from watercolor.simulation.fluid_simulation import FluidSimulation
+from watercolor.simulation.paper import Paper
 from tests.test_utils import assert_numpy_arrays_almost_equal
 
 
@@ -111,7 +111,7 @@ class TestKubelkaMunkProperties:
     )
     def test_color_conservation(self, k, s):
         """Test that Kubelka-Munk reflectance is physically plausible."""
-        from src.simulation.kubelka_munk import km_reflectance
+        from watercolor.simulation.kubelka_munk import km_reflectance
 
         # Calculate reflectance
         reflectance = km_reflectance(k, s)

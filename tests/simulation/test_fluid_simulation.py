@@ -10,8 +10,8 @@ import numpy as np
 import json
 from pathlib import Path
 
-from src.simulation.fluid_simulation import FluidSimulation
-from src.simulation.watercolor_simulation import WatercolorSimulation
+from watercolor.simulation.fluid_simulation import FluidSimulation
+from watercolor.simulation.watercolor_simulation import WatercolorSimulation
 
 # Import our test utilities
 from tests.test_utils import assert_numpy_arrays_almost_equal, TEST_TIME_STEPS

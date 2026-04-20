@@ -11,7 +11,7 @@ import cv2
 import os
 from pathlib import Path
 
-from src.simulation.paper import Paper
+from watercolor.simulation.paper import Paper
 
 
 # --- Basic Paper Tests ---

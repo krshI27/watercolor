@@ -13,9 +13,9 @@ import os
 import json
 from pathlib import Path
 
-from src.simulation.watercolor_simulation import WatercolorSimulation
-from src.simulation.paper import Paper
-from src.simulation.main import load_input_image
+from watercolor.simulation.watercolor_simulation import WatercolorSimulation
+from watercolor.simulation.paper import Paper
+from watercolor.simulation.main import load_input_image
 from tests.test_utils import compare_images, ensure_output_directory
 
 

@@ -9,8 +9,8 @@ import pytest
 import numpy as np
 import cv2
 
-from src.simulation.renderer import Renderer, WatercolorRenderer
-from src.simulation.kubelka_munk import KubelkaMunk
+from watercolor.simulation.renderer import Renderer, WatercolorRenderer
+from watercolor.simulation.kubelka_munk import KubelkaMunk
 
 
 # --- Base Renderer Tests ---

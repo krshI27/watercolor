@@ -6,7 +6,7 @@ Individual component performance tests moved to respective test files (e.g., tes
 
 import time
 import numpy as np
-from src.simulation.watercolor_simulation import WatercolorSimulation
+from watercolor.simulation.watercolor_simulation import WatercolorSimulation
 import pytest
 
 # Fixtures specific to performance tests if needed

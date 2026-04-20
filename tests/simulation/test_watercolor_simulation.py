@@ -8,7 +8,7 @@ including initialization, pigment handling, and simulation steps.
 import pytest
 import numpy as np
 
-from src.simulation.watercolor_simulation import WatercolorSimulation
+from watercolor.simulation.watercolor_simulation import WatercolorSimulation
 
 
 # --- Simulation Initialization Tests ---

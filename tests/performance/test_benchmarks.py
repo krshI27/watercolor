@@ -12,9 +12,9 @@ import numpy as np
 from pathlib import Path
 import json
 
-from src.simulation.watercolor_simulation import WatercolorSimulation
-from src.simulation.paper import Paper
-from src.simulation.fluid_simulation import FluidSimulation
+from watercolor.simulation.watercolor_simulation import WatercolorSimulation
+from watercolor.simulation.paper import Paper
+from watercolor.simulation.fluid_simulation import FluidSimulation
 
 # --- Constants ---
 # Define benchmark thresholds based on typical performance

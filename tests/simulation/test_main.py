@@ -12,7 +12,7 @@ import sys
 import argparse
 from unittest import mock
 
-from src.simulation.main import parse_arguments
+from watercolor.simulation.main import parse_arguments
 
 
 # --- CLI Argument Tests ---
