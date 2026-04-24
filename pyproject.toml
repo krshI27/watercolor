@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "watercolor"
 version = "0.1.0"
 description = "Watercolor simulation + convenience watercolorize() callable."
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = ["numpy", "scipy", "pillow", "scikit-learn"]
 
 [tool.setuptools.packages.find]
